@@ -26,17 +26,19 @@ export default function AIChatPage() {
   // Load last conversation on mount
   useEffect(() => {
     async function loadLastConversation() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-      const { data: conversations } = await supabase
-        .from("ai_conversations")
-        .select("id")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
+        const { data: conversations, error: convError } = await supabase
+          .from("ai_conversations")
+          .select("id")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
 
-      if (conversations?.[0]) {
+        if (convError || !conversations?.[0]) return;
+
         const convId = conversations[0].id;
         setConversationId(convId);
 
@@ -53,23 +55,30 @@ export default function AIChatPage() {
               .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
           );
         }
+      } catch {
+        // Tables may not exist yet
       }
     }
     loadLastConversation();
   }, []);
 
   async function startNewConversation() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    const { data } = await supabase
-      .from("ai_conversations")
-      .insert({ user_id: user.id, title: "Nova conversa" })
-      .select("id")
-      .single();
+      const { data } = await supabase
+        .from("ai_conversations")
+        .insert({ user_id: user.id, title: "Nova conversa" })
+        .select("id")
+        .single();
 
-    if (data) {
-      setConversationId(data.id);
+      if (data) {
+        setConversationId(data.id);
+        setMessages([]);
+      }
+    } catch {
+      setConversationId(null);
       setMessages([]);
     }
   }
@@ -77,18 +86,22 @@ export default function AIChatPage() {
   async function ensureConversation(): Promise<string | null> {
     if (conversationId) return conversationId;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
 
-    const { data } = await supabase
-      .from("ai_conversations")
-      .insert({ user_id: user.id, title: "Nova conversa" })
-      .select("id")
-      .single();
+      const { data } = await supabase
+        .from("ai_conversations")
+        .insert({ user_id: user.id, title: "Nova conversa" })
+        .select("id")
+        .single();
 
-    if (data) {
-      setConversationId(data.id);
-      return data.id;
+      if (data) {
+        setConversationId(data.id);
+        return data.id;
+      }
+    } catch {
+      // Table may not exist - chat still works without persistence
     }
     return null;
   }
@@ -102,14 +115,14 @@ export default function AIChatPage() {
     setInput("");
     setLoading(true);
 
-    // Save user message to DB
+    // Save user message to DB (non-blocking)
     const convId = await ensureConversation();
     if (convId) {
-      await supabase.from("ai_messages").insert({
+      supabase.from("ai_messages").insert({
         conversation_id: convId,
         role: "user",
         content: userMessage.content,
-      });
+      }).then(() => {});
     }
 
     try {
@@ -129,21 +142,22 @@ export default function AIChatPage() {
       const assistantMessage: Message = { role: "assistant", content: data.content };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Save assistant message to DB
+      // Save assistant message to DB (non-blocking)
       if (convId) {
-        await supabase.from("ai_messages").insert({
+        supabase.from("ai_messages").insert({
           conversation_id: convId,
           role: "assistant",
           content: data.content,
-        });
+        }).then(() => {});
 
         // Update conversation title from first user message
         if (messages.length === 0) {
           const title = userMessage.content.slice(0, 60);
-          await supabase
+          supabase
             .from("ai_conversations")
             .update({ title })
-            .eq("id", convId);
+            .eq("id", convId)
+            .then(() => {});
         }
       }
     } catch (err: any) {
