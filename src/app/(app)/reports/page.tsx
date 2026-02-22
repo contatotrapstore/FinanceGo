@@ -16,12 +16,18 @@ import {
   CartesianGrid,
 } from "recharts";
 const COLORS = ["#60A5FA", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#F472B6", "#38BDF8", "#FB923C"];
+
+type CategoryJoin = { name: string; color: string | null } | null;
+
 export default function ReportsPage() {
   const [categoryData, setCategoryData] = useState<{ name: string; value: number; color: string }[]>([]);
   const [topExpenses, setTopExpenses] = useState<{ description: string; amount: number }[]>([]);
   const supabase = createClient();
   useEffect(() => {
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
@@ -30,13 +36,14 @@ export default function ReportsPage() {
         .from("transactions")
         .select("amount_cents, categories(name, color)")
         .eq("type", "expense")
+        .eq("user_id", user.id)
         .gte("date", startOfMonth)
         .lte("date", endOfMonth);
       if (expenses) {
         const map = new Map<string, { total: number; color: string }>();
         expenses.forEach((t) => {
-          const catName = (t.categories as any)?.name ?? "Sem categoria";
-          const catColor = (t.categories as any)?.color ?? "#94A3B8";
+          const catName = (t.categories as CategoryJoin)?.name ?? "Sem categoria";
+          const catColor = (t.categories as CategoryJoin)?.color ?? "#94A3B8";
           const existing = map.get(catName) || { total: 0, color: catColor };
           existing.total += Number(t.amount_cents);
           map.set(catName, existing);
@@ -55,6 +62,7 @@ export default function ReportsPage() {
         .from("transactions")
         .select("description, amount_cents")
         .eq("type", "expense")
+        .eq("user_id", user.id)
         .gte("date", startOfMonth)
         .lte("date", endOfMonth)
         .order("amount_cents", { ascending: false })

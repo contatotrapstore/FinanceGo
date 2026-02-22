@@ -7,6 +7,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
+type CategoryJoin = { name: string; color: string | null; icon: string | null } | null;
+
 export default async function TransactionsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -15,6 +17,7 @@ export default async function TransactionsPage() {
   const { data: transactions } = await supabase
     .from("transactions")
     .select("*, categories(name, color, icon)")
+    .eq("user_id", user.id)
     .order("date", { ascending: false })
     .limit(50);
 
@@ -50,7 +53,7 @@ export default async function TransactionsPage() {
                       {t.description || "Sem descricao"}
                     </p>
                     <Badge variant="secondary" className="text-xs shrink-0">
-                      {(t.categories as any)?.name ?? "Sem categoria"}
+                      {(t.categories as CategoryJoin)?.name ?? "Sem categoria"}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">

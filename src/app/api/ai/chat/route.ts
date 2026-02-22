@@ -1,5 +1,8 @@
 ﻿import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+
+type CategoryJoin = { name: string } | null;
+
 export async function POST(request: Request) {
   // Check if OpenAI API key is configured
   if (!process.env.OPENAI_API_KEY) {
@@ -64,7 +67,7 @@ RESUMO DE ${monthName.toUpperCase()}:
 - Saldo previsto (apos pagar pendentes): R$ ${((income - expense - pendingTotal) / 100).toFixed(2)}
 
 TRANSACOES DO MES:
-${transactions.map((t) => `${t.type === "income" ? "+" : "-"} R$ ${(Number(t.amount_cents) / 100).toFixed(2)} - ${t.description || "sem descricao"} (${(t.categories as any)?.name || "sem categoria"}) em ${t.date}`).join("\n") || "Nenhuma transacao"}
+${transactions.map((t) => `${t.type === "income" ? "+" : "-"} R$ ${(Number(t.amount_cents) / 100).toFixed(2)} - ${t.description || "sem descricao"} (${(t.categories as CategoryJoin)?.name || "sem categoria"}) em ${t.date}`).join("\n") || "Nenhuma transacao"}
 
 CONTAS PENDENTES:
 ${scheduled.map((p) => `- ${p.title}: R$ ${(Number(p.amount_cents) / 100).toFixed(2)} vence ${p.due_date}`).join("\n") || "Nenhuma conta pendente"}

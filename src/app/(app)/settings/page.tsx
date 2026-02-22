@@ -25,7 +25,7 @@ export default function SettingsPage() {
           .from("profiles")
           .select("name")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
         if (profile) setName(profile.name);
       }
     }

@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+type CategoryJoin = { name: string; color: string | null; icon: string | null } | null;
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -24,6 +26,7 @@ export default async function DashboardPage() {
   const { data: transactions } = await supabase
     .from("transactions")
     .select("type, amount_cents")
+    .eq("user_id", user.id)
     .gte("date", startOfMonth)
     .lte("date", endOfMonth);
 
@@ -39,6 +42,7 @@ export default async function DashboardPage() {
   const { data: pendingPayments } = await supabase
     .from("scheduled_payments")
     .select("*")
+    .eq("user_id", user.id)
     .eq("status", "pending")
     .gte("due_date", startOfMonth)
     .lte("due_date", endOfMonth);
@@ -55,6 +59,7 @@ export default async function DashboardPage() {
   const { data: upcoming } = await supabase
     .from("scheduled_payments")
     .select("*")
+    .eq("user_id", user.id)
     .eq("status", "pending")
     .gte("due_date", today)
     .lte("due_date", in30)
@@ -65,6 +70,7 @@ export default async function DashboardPage() {
   const { data: recent } = await supabase
     .from("transactions")
     .select("*, categories(name, color, icon)")
+    .eq("user_id", user.id)
     .order("date", { ascending: false })
     .limit(5);
 
@@ -155,7 +161,7 @@ export default async function DashboardPage() {
                     <div>
                       <p className="text-sm font-medium">{t.description || "Sem descricao"}</p>
                       <p className="text-xs text-muted-foreground">
-                        {(t.categories as any)?.name ?? "Sem categoria"} - {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")}
+                        {(t.categories as CategoryJoin)?.name ?? "Sem categoria"} - {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")}
                       </p>
                     </div>
                     <span className={`text-sm font-semibold ${t.type === "income" ? "text-green-500" : "text-red-500"}`}>

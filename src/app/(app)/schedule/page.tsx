@@ -24,6 +24,9 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Check, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
+import type { Database } from "@/lib/supabase/types";
+
+type ScheduledKind = Database["public"]["Enums"]["scheduled_kind"];
 
 type ScheduledPayment = {
   id: string;
@@ -56,22 +59,27 @@ export default function SchedulePage() {
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [kind, setKind] = useState("other");
+  const [kind, setKind] = useState<ScheduledKind>("other");
   const [walletId, setWalletId] = useState("");
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
 
   const loadPayments = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { data } = await supabase
       .from("scheduled_payments")
       .select("*")
+      .eq("user_id", user.id)
       .order("due_date", { ascending: true });
     if (data) setPayments(data);
   }, []);
 
   useEffect(() => {
     async function init() {
-      const { data: wallets } = await supabase.from("wallets").select("id").limit(1);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: wallets } = await supabase.from("wallets").select("id").eq("user_id", user.id).limit(1);
       if (wallets?.[0]) setWalletId(wallets[0].id);
       loadPayments();
     }
@@ -90,8 +98,13 @@ export default function SchedulePage() {
     }
 
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error("Nao autenticado");
+      setLoading(false);
+      return;
+    }
     const { error } = await supabase.from("scheduled_payments").insert({
-      user_id: user!.id,
+      user_id: user.id,
       wallet_id: walletId,
       title,
       amount_cents: amountCents,
@@ -176,7 +189,7 @@ export default function SchedulePage() {
               </div>
               <div className="space-y-2">
                 <Label>Tipo</Label>
-                <Select value={kind} onValueChange={setKind}>
+                <Select value={kind} onValueChange={(v) => setKind(v as ScheduledKind)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(kindLabels).map(([k, v]) => (

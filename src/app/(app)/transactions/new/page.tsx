@@ -15,6 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import type { Database } from "@/lib/supabase/types";
+
+type PaymentMethod = Database["public"]["Enums"]["payment_method"];
 
 type Category = {
   id: string;
@@ -28,25 +31,32 @@ export default function NewTransactionPage() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("pix");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [walletId, setWalletId] = useState("");
+  const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
 
   useEffect(() => {
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+
       const { data: cats } = await supabase
         .from("categories")
         .select("id, name, type, color")
+        .or(`user_id.eq.${user.id},user_id.is.null`)
         .order("name");
       if (cats) setCategories(cats);
 
       const { data: wallets } = await supabase
         .from("wallets")
         .select("id")
+        .eq("user_id", user.id)
         .limit(1);
       if (wallets?.[0]) setWalletId(wallets[0].id);
     }
@@ -59,6 +69,10 @@ export default function NewTransactionPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!userId) {
+      toast.error("Nao autenticado");
+      return;
+    }
     if (!walletId) {
       toast.error("Carteira nao encontrada");
       return;
@@ -73,7 +87,7 @@ export default function NewTransactionPage() {
     }
 
     const { error } = await supabase.from("transactions").insert({
-      user_id: (await supabase.auth.getUser()).data.user!.id,
+      user_id: userId,
       wallet_id: walletId,
       type,
       amount_cents: amountCents,
@@ -170,7 +184,7 @@ export default function NewTransactionPage() {
             {/* Payment Method */}
             <div className="space-y-2">
               <Label>Metodo</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
