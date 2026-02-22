@@ -1,4 +1,4 @@
-const CACHE_NAME = "financego-v1";
+const CACHE_NAME = "financego-v2";
 const STATIC_ASSETS = [
   "/",
   "/dashboard",
@@ -41,6 +41,9 @@ self.addEventListener("fetch", (event) => {
 
   // Skip non-GET requests
   if (request.method !== "GET") return;
+
+  // Skip non-http(s) requests (chrome-extension://, etc)
+  if (!url.protocol.startsWith("http")) return;
 
   // API calls: network-first
   if (url.pathname.startsWith("/api/")) {

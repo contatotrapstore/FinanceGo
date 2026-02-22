@@ -1,7 +1,26 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const PUBLIC_FILES = [
+  "/manifest.json",
+  "/sw.js",
+  "/robots.txt",
+  "/logo.png",
+];
+
 export async function updateSession(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Skip auth check for public static files
+  if (
+    PUBLIC_FILES.includes(pathname) ||
+    pathname.startsWith("/icons/") ||
+    pathname.startsWith("/_next/") ||
+    pathname.match(/\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|json|txt|woff|woff2)$/)
+  ) {
+    return NextResponse.next();
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
