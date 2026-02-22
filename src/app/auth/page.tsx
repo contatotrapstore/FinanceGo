@@ -62,9 +62,8 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <Image src="/logo.png" alt="FinanceGO" width={40} height={40} className="rounded" />
-            <span className="text-2xl font-bold">FinanceGO</span>
+          <div className="flex justify-center mb-4">
+            <Image src="/logo.png" alt="FinanceGO" width={180} height={60} className="h-auto" priority />
           </div>
           <CardTitle>{isLogin ? "Entrar" : "Criar conta"}</CardTitle>
           <CardDescription>

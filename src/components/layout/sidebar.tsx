@@ -32,9 +32,8 @@ export function Sidebar() {
   }
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 border-r border-border bg-card">
-      <div className="flex items-center gap-2 px-6 py-5 border-b border-border">
-        <Image src="/logo.png" alt="FinanceGO" width={32} height={32} className="rounded" />
-        <span className="text-xl font-bold text-foreground">FinanceGO</span>
+      <div className="flex items-center justify-center px-4 py-4 border-b border-border">
+        <Image src="/logo.png" alt="FinanceGO" width={160} height={48} className="h-auto" priority />
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {
