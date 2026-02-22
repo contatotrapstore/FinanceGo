@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/lib/format";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Check, CalendarClock } from "lucide-react";
+import { Plus, Check, CalendarClock, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { Database } from "@/lib/supabase/types";
 
@@ -55,13 +55,28 @@ const statusColors: Record<string, string> = {
 
 export default function SchedulePage() {
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
-  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [kind, setKind] = useState<ScheduledKind>("other");
   const [walletId, setWalletId] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Edit state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editId, setEditId] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editKind, setEditKind] = useState<ScheduledKind>("other");
+  const [editLoading, setEditLoading] = useState(false);
+
+  // Delete state
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const supabase = createClient();
 
   const loadPayments = useCallback(async () => {
@@ -72,7 +87,28 @@ export default function SchedulePage() {
       .select("*")
       .eq("user_id", user.id)
       .order("due_date", { ascending: true });
-    if (data) setPayments(data);
+    if (data) {
+      // Auto-detect overdue: mark pending payments with past due_date
+      const today = new Date().toISOString().split("T")[0];
+      const overdueIds = data
+        .filter((p) => p.status === "pending" && p.due_date < today)
+        .map((p) => p.id);
+      if (overdueIds.length > 0) {
+        await supabase
+          .from("scheduled_payments")
+          .update({ status: "overdue" })
+          .in("id", overdueIds);
+        // Refresh the data after update
+        const { data: refreshed } = await supabase
+          .from("scheduled_payments")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("due_date", { ascending: true });
+        if (refreshed) setPayments(refreshed);
+      } else {
+        setPayments(data);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -116,7 +152,7 @@ export default function SchedulePage() {
       toast.error("Erro: " + error.message);
     } else {
       toast.success("Conta criada!");
-      setOpen(false);
+      setCreateOpen(false);
       setTitle("");
       setAmount("");
       setDueDate("");
@@ -140,11 +176,66 @@ export default function SchedulePage() {
     }
   }
 
+  function openEdit(p: ScheduledPayment) {
+    setEditId(p.id);
+    setEditTitle(p.title);
+    setEditAmount((Number(p.amount_cents) / 100).toFixed(2));
+    setEditDueDate(p.due_date);
+    setEditKind(p.kind as ScheduledKind);
+    setEditOpen(true);
+  }
+
+  async function handleEdit(e: React.FormEvent) {
+    e.preventDefault();
+    setEditLoading(true);
+    const amountCents = Math.round(parseFloat(editAmount) * 100);
+    if (isNaN(amountCents) || amountCents <= 0) {
+      toast.error("Valor invalido");
+      setEditLoading(false);
+      return;
+    }
+    const { error } = await supabase
+      .from("scheduled_payments")
+      .update({
+        title: editTitle,
+        amount_cents: amountCents,
+        due_date: editDueDate,
+        kind: editKind,
+      })
+      .eq("id", editId);
+
+    if (error) {
+      toast.error("Erro ao atualizar: " + error.message);
+    } else {
+      toast.success("Conta atualizada!");
+      setEditOpen(false);
+      loadPayments();
+    }
+    setEditLoading(false);
+  }
+
+  async function handleDelete() {
+    setDeleteLoading(true);
+    const { error } = await supabase
+      .from("scheduled_payments")
+      .delete()
+      .eq("id", deleteId);
+
+    if (error) {
+      toast.error("Erro ao excluir: " + error.message);
+    } else {
+      toast.success("Conta excluida!");
+      setDeleteOpen(false);
+      loadPayments();
+    }
+    setDeleteLoading(false);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Agenda</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button size="sm">
               <Plus className="h-4 w-4 mr-1" />
@@ -232,14 +323,28 @@ export default function SchedulePage() {
                     Vence: {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 ml-3 shrink-0">
+                <div className="flex items-center gap-1 ml-3 shrink-0">
                   <span className="text-sm font-bold text-red-500">
                     {formatCurrency(Number(p.amount_cents))}
                   </span>
                   {p.status === "pending" && (
-                    <Button size="sm" variant="outline" onClick={() => markAsPaid(p.id)}>
-                      <Check className="h-4 w-4" />
-                    </Button>
+                    <>
+                      <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => markAsPaid(p.id)} title="Marcar como pago">
+                        <Check className="h-4 w-4 text-green-500" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(p)} title="Editar">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-10 w-10 p-0 text-destructive hover:text-destructive"
+                        onClick={() => { setDeleteId(p.id); setDeleteOpen(true); }}
+                        title="Excluir"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
                   )}
                 </div>
               </CardContent>
@@ -247,6 +352,80 @@ export default function SchedulePage() {
           ))}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar conta</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEdit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Titulo</Label>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Valor (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+                required
+                inputMode="decimal"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Vencimento</Label>
+              <Input
+                type="date"
+                value={editDueDate}
+                onChange={(e) => setEditDueDate(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Tipo</Label>
+              <Select value={editKind} onValueChange={(v) => setEditKind(v as ScheduledKind)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(kindLabels).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" className="w-full" disabled={editLoading}>
+              {editLoading ? "Salvando..." : "Salvar alteracoes"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir conta</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir esta conta? Esta acao nao pode ser desfeita.
+          </p>
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={deleteLoading}>
+              {deleteLoading ? "Excluindo..." : "Excluir"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

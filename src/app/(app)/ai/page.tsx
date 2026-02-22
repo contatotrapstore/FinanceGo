@@ -1,43 +1,151 @@
-﻿"use client";
-import { useState, useRef, useEffect } from "react";
+"use client";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User, MessageSquare } from "lucide-react";
+import { Send, Bot, User, MessageSquare, Plus } from "lucide-react";
+
 type Message = {
   role: "user" | "assistant";
   content: string;
 };
+
 export default function AIChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const supabase = createClient();
+
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Load last conversation on mount
+  useEffect(() => {
+    async function loadLastConversation() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: conversations } = await supabase
+        .from("ai_conversations")
+        .select("id")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (conversations?.[0]) {
+        const convId = conversations[0].id;
+        setConversationId(convId);
+
+        const { data: msgs } = await supabase
+          .from("ai_messages")
+          .select("role, content")
+          .eq("conversation_id", convId)
+          .order("created_at", { ascending: true });
+
+        if (msgs && msgs.length > 0) {
+          setMessages(
+            msgs
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+          );
+        }
+      }
+    }
+    loadLastConversation();
+  }, []);
+
+  async function startNewConversation() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from("ai_conversations")
+      .insert({ user_id: user.id, title: "Nova conversa" })
+      .select("id")
+      .single();
+
+    if (data) {
+      setConversationId(data.id);
+      setMessages([]);
+    }
+  }
+
+  async function ensureConversation(): Promise<string | null> {
+    if (conversationId) return conversationId;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data } = await supabase
+      .from("ai_conversations")
+      .insert({ user_id: user.id, title: "Nova conversa" })
+      .select("id")
+      .single();
+
+    if (data) {
+      setConversationId(data.id);
+      return data.id;
+    }
+    return null;
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || loading) return;
+
     const userMessage: Message = { role: "user", content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
+
+    // Save user message to DB
+    const convId = await ensureConversation();
+    if (convId) {
+      await supabase.from("ai_messages").insert({
+        conversation_id: convId,
+        role: "user",
+        content: userMessage.content,
+      });
+    }
+
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...messages, userMessage] }),
+        body: JSON.stringify({
+          messages: [...messages, userMessage],
+          conversation_id: convId,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Erro ao se comunicar com a IA");
       }
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.content },
-      ]);
+      const assistantMessage: Message = { role: "assistant", content: data.content };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      // Save assistant message to DB
+      if (convId) {
+        await supabase.from("ai_messages").insert({
+          conversation_id: convId,
+          role: "assistant",
+          content: data.content,
+        });
+
+        // Update conversation title from first user message
+        if (messages.length === 0) {
+          const title = userMessage.content.slice(0, 60);
+          await supabase
+            .from("ai_conversations")
+            .update({ title })
+            .eq("id", convId);
+        }
+      }
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
@@ -49,16 +157,23 @@ export default function AIChatPage() {
     }
     setLoading(false);
   }
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-5rem)]">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <MessageSquare className="h-6 w-6" />
-          FinanceGO IA
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Pergunte sobre suas financas
-        </p>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <MessageSquare className="h-6 w-6" />
+            FinanceGO IA
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Pergunte sobre suas financas
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={startNewConversation}>
+          <Plus className="h-4 w-4 mr-1" />
+          Nova conversa
+        </Button>
       </div>
       {/* Messages */}
       <Card className="flex-1 overflow-hidden">
@@ -73,6 +188,7 @@ export default function AIChatPage() {
                   "Quanto gastei esse mes?",
                   "Quais categorias mais pesam?",
                   "Se pagar tudo, fico com quanto?",
+                  "Quanto falta ganhar pra nao ficar negativo?",
                 ].map((q) => (
                   <button
                     key={q}
@@ -89,7 +205,7 @@ export default function AIChatPage() {
             <div
               key={i}
               className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}
-              >
+            >
               {msg.role === "assistant" && (
                 <div className="shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
                   <Bot className="h-4 w-4 text-primary" />

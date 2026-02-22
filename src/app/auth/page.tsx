@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Wallet } from "lucide-react";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -32,13 +32,23 @@ export default function AuthPage() {
         return;
       }
     } else {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { name } },
       });
       if (error) {
-        setError(error.message);
+        if (error.message.includes("rate") || error.status === 429) {
+          setError("Muitas tentativas. Aguarde 1 minuto e tente novamente.");
+        } else {
+          setError(error.message);
+        }
+        setLoading(false);
+        return;
+      }
+      // If email confirmation is required, user won't have a session
+      if (data.user && !data.session) {
+        setError("Conta criada! Verifique seu email para confirmar o cadastro.");
         setLoading(false);
         return;
       }
@@ -52,8 +62,8 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Wallet className="h-8 w-8 text-primary" />
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <Image src="/logo.png" alt="FinanceGO" width={40} height={40} className="rounded" />
             <span className="text-2xl font-bold">FinanceGO</span>
           </div>
           <CardTitle>{isLogin ? "Entrar" : "Criar conta"}</CardTitle>

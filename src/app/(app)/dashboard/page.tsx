@@ -8,6 +8,8 @@ import {
   Wallet,
   Target,
   CalendarClock,
+  AlertTriangle,
+  DollarSign,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -21,6 +23,21 @@ export default async function DashboardPage() {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+  const today = now.toISOString().split("T")[0];
+
+  // Fetch ALL transactions for cumulative balance ("Saldo Atual")
+  const { data: allTransactions } = await supabase
+    .from("transactions")
+    .select("type, amount_cents")
+    .eq("user_id", user.id);
+
+  const totalIncome = (allTransactions ?? [])
+    .filter((t) => t.type === "income")
+    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  const totalExpense = (allTransactions ?? [])
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  const saldoAtual = totalIncome - totalExpense;
 
   // Fetch transactions for current month
   const { data: transactions } = await supabase
@@ -38,7 +55,7 @@ export default async function DashboardPage() {
     .reduce((sum, t) => sum + Number(t.amount_cents), 0);
   const balance = income - expense;
 
-  // Fetch pending scheduled payments
+  // Fetch pending scheduled payments for current month
   const { data: pendingPayments } = await supabase
     .from("scheduled_payments")
     .select("*")
@@ -54,7 +71,6 @@ export default async function DashboardPage() {
   const projected = balance - pendingTotal;
 
   // Upcoming payments (next 30 days)
-  const today = now.toISOString().split("T")[0];
   const in30 = new Date(now.getTime() + 30 * 86400000).toISOString().split("T")[0];
   const { data: upcoming } = await supabase
     .from("scheduled_payments")
@@ -65,6 +81,10 @@ export default async function DashboardPage() {
     .lte("due_date", in30)
     .order("due_date", { ascending: true })
     .limit(5);
+
+  // Urgent payments (next 3 days)
+  const in3 = new Date(now.getTime() + 3 * 86400000).toISOString().split("T")[0];
+  const urgentPayments = (upcoming ?? []).filter((p) => p.due_date <= in3);
 
   // Recent transactions
   const { data: recent } = await supabase
@@ -88,6 +108,63 @@ export default async function DashboardPage() {
         <p className="text-muted-foreground text-sm">Resumo financeiro do mes</p>
       </div>
 
+      {/* Saldo Atual - Destaque */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="pt-4 pb-4 px-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <DollarSign className="h-5 w-5 text-primary" />
+                <span className="text-sm text-muted-foreground">Saldo Atual</span>
+              </div>
+              <p className={`text-2xl font-bold ${saldoAtual >= 0 ? "text-primary" : "text-red-500"}`}>
+                {formatCurrency(saldoAtual)}
+              </p>
+            </div>
+            {pendingTotal > 0 && (
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Apos pagar pendentes</p>
+                <p className={`text-lg font-semibold ${saldoAtual - pendingTotal >= 0 ? "text-primary" : "text-red-500"}`}>
+                  {formatCurrency(saldoAtual - pendingTotal)}
+                </p>
+              </div>
+            )}
+          </div>
+          {/* Quick summary phrase */}
+          <p className="text-xs text-muted-foreground mt-2">
+            {expense > 0
+              ? `Voce gastou ${formatCurrency(expense)} este mes.`
+              : "Nenhum gasto registrado este mes."
+            }
+            {pendingTotal > 0 && ` Faltam ${formatCurrency(pendingTotal)} em contas pendentes.`}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Urgent Payment Alert */}
+      {urgentPayments.length > 0 && (
+        <Card className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                  {urgentPayments.length === 1
+                    ? "Conta vencendo em breve!"
+                    : `${urgentPayments.length} contas vencem nos proximos 3 dias!`
+                  }
+                </p>
+                {urgentPayments.map((p) => (
+                  <p key={p.id} className="text-xs text-yellow-700 dark:text-yellow-300 mt-0.5">
+                    {p.title}: {formatCurrency(Number(p.amount_cents))} — vence {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map((card) => (
@@ -95,9 +172,9 @@ export default async function DashboardPage() {
             <CardContent className="pt-4 pb-3 px-4">
               <div className="flex items-center gap-2 mb-1">
                 <card.icon className={`h-4 w-4 ${card.color}`} />
-                <span className="text-xs text-muted-foreground">{card.title}</span>
+                <span className="text-sm text-muted-foreground">{card.title}</span>
               </div>
-              <p className={`text-lg font-bold ${card.color}`}>
+              <p className={`text-xl font-bold ${card.color}`}>
                 {formatCurrency(card.value)}
               </p>
             </CardContent>

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -9,7 +10,6 @@ import {
   MessageSquare,
   Settings,
   LogOut,
-  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -33,7 +33,7 @@ export function Sidebar() {
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 border-r border-border bg-card">
       <div className="flex items-center gap-2 px-6 py-5 border-b border-border">
-        <Wallet className="h-7 w-7 text-primary" />
+        <Image src="/logo.png" alt="FinanceGO" width={32} height={32} className="rounded" />
         <span className="text-xl font-bold text-foreground">FinanceGO</span>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">

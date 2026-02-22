@@ -36,6 +36,8 @@ export default function NewTransactionPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [walletId, setWalletId] = useState("");
   const [userId, setUserId] = useState("");
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringRule, setRecurringRule] = useState("monthly");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
@@ -95,6 +97,8 @@ export default function NewTransactionPage() {
       description,
       category_id: categoryId || null,
       payment_method: paymentMethod,
+      is_recurring: isRecurring,
+      recurring_rule: isRecurring ? recurringRule : null,
     });
 
     if (error) {
@@ -208,6 +212,42 @@ export default function NewTransactionPage() {
                 onChange={(e) => setDate(e.target.value)}
                 required
               />
+            </div>
+
+            {/* Recurring */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isRecurring}
+                  onClick={() => setIsRecurring(!isRecurring)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    isRecurring ? "bg-primary" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                      isRecurring ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <Label className="cursor-pointer" onClick={() => setIsRecurring(!isRecurring)}>
+                  Lancamento recorrente
+                </Label>
+              </div>
+              {isRecurring && (
+                <Select value={recurringRule} onValueChange={setRecurringRule}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Mensal</SelectItem>
+                    <SelectItem value="weekly">Semanal</SelectItem>
+                    <SelectItem value="biweekly">Quinzenal</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
