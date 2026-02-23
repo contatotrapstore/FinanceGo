@@ -32,7 +32,10 @@ export default function NewTransactionPage() {
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
   const [categories, setCategories] = useState<Category[]>([]);
   const [walletId, setWalletId] = useState("");
   const [userId, setUserId] = useState("");
@@ -72,18 +75,18 @@ export default function NewTransactionPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!userId) {
-      toast.error("Nao autenticado");
+      toast.error("Não autenticado");
       return;
     }
     if (!walletId) {
-      toast.error("Carteira nao encontrada");
+      toast.error("Carteira não encontrada");
       return;
     }
     setLoading(true);
 
     const amountCents = Math.round(parseFloat(amount) * 100);
     if (isNaN(amountCents) || amountCents <= 0) {
-      toast.error("Valor invalido");
+      toast.error("Valor inválido");
       setLoading(false);
       return;
     }
@@ -107,7 +110,7 @@ export default function NewTransactionPage() {
       return;
     }
 
-    toast.success("Lancamento salvo!");
+    toast.success("Lançamento salvo!");
     router.push("/transactions");
     router.refresh();
   }
@@ -116,7 +119,7 @@ export default function NewTransactionPage() {
     <div className="max-w-lg mx-auto">
       <Card>
         <CardHeader>
-          <CardTitle>Novo lancamento</CardTitle>
+          <CardTitle>Novo lançamento</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -136,7 +139,7 @@ export default function NewTransactionPage() {
                 className={`flex-1 ${type === "expense" ? "bg-red-500 hover:bg-red-600 text-white" : ""}`}
                 onClick={() => setType("expense")}
               >
-                Saida
+                Saída
               </Button>
             </div>
 
@@ -159,7 +162,7 @@ export default function NewTransactionPage() {
 
             {/* Description */}
             <div className="space-y-2">
-              <Label htmlFor="description">Descricao</Label>
+              <Label htmlFor="description">Descrição</Label>
               <Input
                 id="description"
                 placeholder="Ex: Pix do cliente, Conta de luz..."
@@ -187,7 +190,7 @@ export default function NewTransactionPage() {
 
             {/* Payment Method */}
             <div className="space-y-2">
-              <Label>Metodo</Label>
+              <Label>Método</Label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -195,8 +198,8 @@ export default function NewTransactionPage() {
                 <SelectContent>
                   <SelectItem value="pix">Pix</SelectItem>
                   <SelectItem value="cash">Dinheiro</SelectItem>
-                  <SelectItem value="card">Cartao</SelectItem>
-                  <SelectItem value="transfer">Transferencia</SelectItem>
+                  <SelectItem value="card">Cartão</SelectItem>
+                  <SelectItem value="transfer">Transferência</SelectItem>
                   <SelectItem value="other">Outro</SelectItem>
                 </SelectContent>
               </Select>
@@ -233,7 +236,7 @@ export default function NewTransactionPage() {
                   />
                 </button>
                 <Label className="cursor-pointer" onClick={() => setIsRecurring(!isRecurring)}>
-                  Lancamento recorrente
+                  Lançamento recorrente
                 </Label>
               </div>
               {isRecurring && (
@@ -251,7 +254,7 @@ export default function NewTransactionPage() {
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Salvando..." : "Salvar lancamento"}
+              {loading ? "Salvando..." : "Salvar lançamento"}
             </Button>
           </form>
         </CardContent>

@@ -181,7 +181,7 @@ export default function AIChatPage() {
             FinanceGO IA
           </h1>
           <p className="text-muted-foreground text-sm">
-            Pergunte sobre suas financas
+            Pergunte sobre suas finanças
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={startNewConversation}>
@@ -195,14 +195,14 @@ export default function AIChatPage() {
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <Bot className="h-12 w-12 mb-3 opacity-50" />
-              <p className="text-sm">Ola! Sou o assistente do FinanceGO.</p>
-              <p className="text-xs mt-1">Pergunte sobre seus gastos, projecoes ou metas.</p>
+              <p className="text-sm">Olá! Sou o assistente do FinanceGO.</p>
+              <p className="text-xs mt-1">Pergunte sobre seus gastos, projeções ou metas.</p>
               <div className="mt-4 space-y-2">
                 {[
-                  "Quanto gastei esse mes?",
+                  "Quanto gastei esse mês?",
                   "Quais categorias mais pesam?",
                   "Se pagar tudo, fico com quanto?",
-                  "Quanto falta ganhar pra nao ficar negativo?",
+                  "Quanto falta ganhar pra não ficar negativo?",
                 ].map((q) => (
                   <button
                     key={q}

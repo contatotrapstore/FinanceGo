@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/schedule", label: "Agenda", icon: CalendarClock },
-  { href: "/transactions/new", label: "Lancar", icon: Plus, isMain: true },
-  { href: "/reports", label: "Relatorios", icon: BarChart3 },
+  { href: "/transactions/new", label: "Lançar", icon: Plus, isMain: true },
+  { href: "/reports", label: "Relatórios", icon: BarChart3 },
   { href: "/ai", label: "IA", icon: MessageSquare },
 ];
 export function BottomNav() {

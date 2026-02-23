@@ -12,7 +12,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "FinanceGO",
-  description: "Seu sistema financeiro pessoal - rapido, inteligente e bonito.",
+  description: "Seu sistema financeiro pessoal - rápido, inteligente e bonito.",
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "FinanceGO",
-    description: "Seu sistema financeiro pessoal - rapido, inteligente e bonito.",
+    description: "Seu sistema financeiro pessoal - rápido, inteligente e bonito.",
     type: "website",
     locale: "pt_BR",
   },

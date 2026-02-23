@@ -16,11 +16,11 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/transactions", label: "Lancamentos", icon: ArrowLeftRight },
+  { href: "/transactions", label: "Lançamentos", icon: ArrowLeftRight },
   { href: "/schedule", label: "Agenda", icon: CalendarClock },
-  { href: "/reports", label: "Relatorios", icon: BarChart3 },
+  { href: "/reports", label: "Relatórios", icon: BarChart3 },
   { href: "/ai", label: "IA Chat", icon: MessageSquare },
-  { href: "/settings", label: "Configuracoes", icon: Settings },
+  { href: "/settings", label: "Configurações", icon: Settings },
 ];
 export function Sidebar() {
   const pathname = usePathname();

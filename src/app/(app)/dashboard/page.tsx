@@ -21,9 +21,13 @@ export default async function DashboardPage() {
   if (!user) redirect("/auth");
 
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
-  const today = now.toISOString().split("T")[0];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yr = now.getFullYear();
+  const mo = now.getMonth();
+  const startOfMonth = `${yr}-${pad(mo + 1)}-01`;
+  const lastDay = new Date(yr, mo + 1, 0).getDate();
+  const endOfMonth = `${yr}-${pad(mo + 1)}-${pad(lastDay)}`;
+  const today = `${yr}-${pad(mo + 1)}-${pad(now.getDate())}`;
 
   // Fetch ALL transactions for cumulative balance ("Saldo Atual")
   const { data: allTransactions } = await supabase
@@ -71,7 +75,8 @@ export default async function DashboardPage() {
   const projected = balance - pendingTotal;
 
   // Upcoming payments (next 30 days)
-  const in30 = new Date(now.getTime() + 30 * 86400000).toISOString().split("T")[0];
+  const d30 = new Date(now.getTime() + 30 * 86400000);
+  const in30 = `${d30.getFullYear()}-${pad(d30.getMonth() + 1)}-${pad(d30.getDate())}`;
   const { data: upcoming } = await supabase
     .from("scheduled_payments")
     .select("*")
@@ -83,7 +88,8 @@ export default async function DashboardPage() {
     .limit(5);
 
   // Urgent payments (next 3 days)
-  const in3 = new Date(now.getTime() + 3 * 86400000).toISOString().split("T")[0];
+  const d3 = new Date(now.getTime() + 3 * 86400000);
+  const in3 = `${d3.getFullYear()}-${pad(d3.getMonth() + 1)}-${pad(d3.getDate())}`;
   const urgentPayments = (upcoming ?? []).filter((p) => p.due_date <= in3);
 
   // Recent transactions
@@ -96,8 +102,8 @@ export default async function DashboardPage() {
 
   const cards = [
     { title: "Entradas", value: income, icon: TrendingUp, color: "text-green-500" },
-    { title: "Saidas", value: expense, icon: TrendingDown, color: "text-red-500" },
-    { title: "Saldo do Mes", value: balance, icon: Wallet, color: balance >= 0 ? "text-green-500" : "text-red-500" },
+    { title: "Saídas", value: expense, icon: TrendingDown, color: "text-red-500" },
+    { title: "Saldo do Mês", value: balance, icon: Wallet, color: balance >= 0 ? "text-green-500" : "text-red-500" },
     { title: "Saldo Previsto", value: projected, icon: Target, color: projected >= 0 ? "text-blue-500" : "text-red-500" },
   ];
 
@@ -105,7 +111,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold capitalize">{formatMonthYear(now)}</h1>
-        <p className="text-muted-foreground text-sm">Resumo financeiro do mes</p>
+        <p className="text-muted-foreground text-sm">Resumo financeiro do mês</p>
       </div>
 
       {/* Saldo Atual - Destaque */}
@@ -123,7 +129,7 @@ export default async function DashboardPage() {
             </div>
             {pendingTotal > 0 && (
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Apos pagar pendentes</p>
+                <p className="text-xs text-muted-foreground">Após pagar pendentes</p>
                 <p className={`text-lg font-semibold ${saldoAtual - pendingTotal >= 0 ? "text-primary" : "text-red-500"}`}>
                   {formatCurrency(saldoAtual - pendingTotal)}
                 </p>
@@ -133,8 +139,8 @@ export default async function DashboardPage() {
           {/* Quick summary phrase */}
           <p className="text-xs text-muted-foreground mt-2">
             {expense > 0
-              ? `Voce gastou ${formatCurrency(expense)} este mes.`
-              : "Nenhum gasto registrado este mes."
+              ? `Você gastou ${formatCurrency(expense)} este mês.`
+              : "Nenhum gasto registrado este mês."
             }
             {pendingTotal > 0 && ` Faltam ${formatCurrency(pendingTotal)} em contas pendentes.`}
           </p>
@@ -151,7 +157,7 @@ export default async function DashboardPage() {
                 <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
                   {urgentPayments.length === 1
                     ? "Conta vencendo em breve!"
-                    : `${urgentPayments.length} contas vencem nos proximos 3 dias!`
+                    : `${urgentPayments.length} contas vencem nos próximos 3 dias!`
                   }
                 </p>
                 {urgentPayments.map((p) => (
@@ -188,7 +194,7 @@ export default async function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <CalendarClock className="h-4 w-4" />
-              Proximos pagamentos
+              Próximos pagamentos
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -225,18 +231,18 @@ export default async function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Wallet className="h-4 w-4" />
-              Ultimos lancamentos
+              Últimos lançamentos
             </CardTitle>
           </CardHeader>
           <CardContent>
             {(!recent || recent.length === 0) ? (
-              <p className="text-sm text-muted-foreground">Nenhum lancamento ainda</p>
+              <p className="text-sm text-muted-foreground">Nenhum lançamento ainda</p>
             ) : (
               <div className="space-y-3">
                 {recent.map((t) => (
                   <div key={t.id} className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">{t.description || "Sem descricao"}</p>
+                      <p className="text-sm font-medium">{t.description || "Sem descrição"}</p>
                       <p className="text-xs text-muted-foreground">
                         {(t.categories as CategoryJoin)?.name ?? "Sem categoria"} - {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")}
                       </p>

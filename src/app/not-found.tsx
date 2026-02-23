@@ -9,9 +9,9 @@ export default function NotFound() {
       <Card className="w-full max-w-md text-center">
         <CardContent className="pt-8 pb-8 space-y-4">
           <FileQuestion className="h-12 w-12 text-muted-foreground mx-auto" />
-          <h1 className="text-xl font-bold">Pagina nao encontrada</h1>
+          <h1 className="text-xl font-bold">Página não encontrada</h1>
           <p className="text-sm text-muted-foreground">
-            A pagina que voce procura nao existe ou foi movida.
+            A página que você procura não existe ou foi movida.
           </p>
           <Button asChild className="mt-4">
             <Link href="/dashboard">Voltar ao dashboard</Link>

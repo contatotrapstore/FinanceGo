@@ -38,11 +38,11 @@ type ScheduledPayment = {
 };
 
 const kindLabels: Record<string, string> = {
-  credit_card: "Cartao",
-  loan: "Emprestimo",
+  credit_card: "Cartão",
+  loan: "Empréstimo",
   fixed_bill: "Conta Fixa",
   subscription: "Assinatura",
-  variable_bill: "Conta Variavel",
+  variable_bill: "Conta Variável",
   other: "Outro",
 };
 
@@ -89,7 +89,8 @@ export default function SchedulePage() {
       .order("due_date", { ascending: true });
     if (data) {
       // Auto-detect overdue: mark pending payments with past due_date
-      const today = new Date().toISOString().split("T")[0];
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       const overdueIds = data
         .filter((p) => p.status === "pending" && p.due_date < today)
         .map((p) => p.id);
@@ -128,14 +129,14 @@ export default function SchedulePage() {
 
     const amountCents = Math.round(parseFloat(amount) * 100);
     if (isNaN(amountCents) || amountCents <= 0) {
-      toast.error("Valor invalido");
+      toast.error("Valor inválido");
       setLoading(false);
       return;
     }
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      toast.error("Nao autenticado");
+      toast.error("Não autenticado");
       setLoading(false);
       return;
     }
@@ -163,6 +164,30 @@ export default function SchedulePage() {
   }
 
   async function markAsPaid(id: string) {
+    const payment = payments.find((p) => p.id === id);
+    if (!payment) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const { error: txError } = await supabase.from("transactions").insert({
+      user_id: user.id,
+      wallet_id: walletId,
+      type: "expense" as const,
+      amount_cents: payment.amount_cents,
+      date: todayStr,
+      description: payment.title,
+      payment_method: "other" as const,
+    });
+
+    if (txError) {
+      toast.error("Erro ao criar lançamento: " + txError.message);
+      return;
+    }
+
     const { error } = await supabase
       .from("scheduled_payments")
       .update({ status: "paid" })
@@ -171,7 +196,7 @@ export default function SchedulePage() {
     if (error) {
       toast.error("Erro ao marcar como pago");
     } else {
-      toast.success("Marcado como pago! Lancamento criado automaticamente.");
+      toast.success("Pago! Lançamento criado automaticamente.");
       loadPayments();
     }
   }
@@ -190,7 +215,7 @@ export default function SchedulePage() {
     setEditLoading(true);
     const amountCents = Math.round(parseFloat(editAmount) * 100);
     if (isNaN(amountCents) || amountCents <= 0) {
-      toast.error("Valor invalido");
+      toast.error("Valor inválido");
       setEditLoading(false);
       return;
     }
@@ -224,7 +249,7 @@ export default function SchedulePage() {
     if (error) {
       toast.error("Erro ao excluir: " + error.message);
     } else {
-      toast.success("Conta excluida!");
+      toast.success("Conta excluída!");
       setDeleteOpen(false);
       loadPayments();
     }
@@ -248,9 +273,9 @@ export default function SchedulePage() {
             </DialogHeader>
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="space-y-2">
-                <Label>Titulo</Label>
+                <Label>Título</Label>
                 <Input
-                  placeholder="Ex: Cartao Nubank, Aluguel..."
+                  placeholder="Ex: Cartão Nubank, Aluguel..."
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   required
@@ -361,7 +386,7 @@ export default function SchedulePage() {
           </DialogHeader>
           <form onSubmit={handleEdit} className="space-y-4">
             <div className="space-y-2">
-              <Label>Titulo</Label>
+              <Label>Título</Label>
               <Input
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
@@ -401,7 +426,7 @@ export default function SchedulePage() {
               </Select>
             </div>
             <Button type="submit" className="w-full" disabled={editLoading}>
-              {editLoading ? "Salvando..." : "Salvar alteracoes"}
+              {editLoading ? "Salvando..." : "Salvar alterações"}
             </Button>
           </form>
         </DialogContent>
@@ -414,7 +439,7 @@ export default function SchedulePage() {
             <DialogTitle>Excluir conta</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Tem certeza que deseja excluir esta conta? Esta acao nao pode ser desfeita.
+            Tem certeza que deseja excluir esta conta? Esta ação não pode ser desfeita.
           </p>
           <div className="flex gap-2 mt-4">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)}>

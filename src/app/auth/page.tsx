@@ -122,7 +122,7 @@ export default function AuthPage() {
             </Button>
           </form>
           <div className="mt-4 text-center text-sm text-muted-foreground">
-            {isLogin ? "Nao tem conta? " : "Ja tem conta? "}
+            {isLogin ? "Não tem conta? " : "Já tem conta? "}
             <button
               onClick={() => { setIsLogin(!isLogin); setError(""); }}
               className="text-primary hover:underline font-medium"

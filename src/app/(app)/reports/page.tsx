@@ -38,8 +38,10 @@ export default function ReportsPage() {
 
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth();
-    const startOfMonth = new Date(year, month, 1).toISOString().split("T")[0];
-    const endOfMonth = new Date(year, month + 1, 0).toISOString().split("T")[0];
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const startOfMonth = `${year}-${pad(month + 1)}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const endOfMonth = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     // Category breakdown
@@ -86,7 +88,7 @@ export default function ReportsPage() {
     if (top) {
       setTopExpenses(
         top.map((t) => ({
-          description: t.description || "Sem descricao",
+          description: t.description || "Sem descrição",
           amount: Number(t.amount_cents),
         }))
       );
@@ -139,7 +141,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Relatorios</h1>
+        <h1 className="text-2xl font-bold">Relatórios</h1>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={prevMonth}>
             <ChevronLeft className="h-4 w-4" />
@@ -156,7 +158,7 @@ export default function ReportsPage() {
       {/* Daily Balance Line Chart */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Saldo diario acumulado</CardTitle>
+          <CardTitle className="text-base">Saldo diário acumulado</CardTitle>
         </CardHeader>
         <CardContent>
           {dailyBalance.length === 0 || dailyBalance.every((d) => d.saldo === 0) ? (

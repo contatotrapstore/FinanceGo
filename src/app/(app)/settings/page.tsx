@@ -38,7 +38,7 @@ type Category = {
 
 const typeLabels: Record<string, string> = {
   income: "Entrada",
-  expense: "Saida",
+  expense: "Saída",
   both: "Ambos",
 };
 
@@ -178,12 +178,12 @@ export default function SettingsPage() {
       .eq("id", deleteCatId);
     if (error) {
       if (error.message.includes("foreign") || error.message.includes("constraint")) {
-        toast.error("Esta categoria esta em uso. Remova os lancamentos associados primeiro.");
+        toast.error("Esta categoria está em uso. Remova os lançamentos associados primeiro.");
       } else {
         toast.error("Erro: " + error.message);
       }
     } else {
-      toast.success("Categoria excluida!");
+      toast.success("Categoria excluída!");
       setDeleteCatOpen(false);
       loadCategories(userId);
     }
@@ -195,7 +195,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold">Configuracoes</h1>
+      <h1 className="text-2xl font-bold">Configurações</h1>
       {/* Profile */}
       <Card>
         <CardHeader>
@@ -257,7 +257,7 @@ export default function SettingsPage() {
                     <Select value={catType} onValueChange={(v) => setCatType(v as CategoryType)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="expense">Saida</SelectItem>
+                        <SelectItem value="expense">Saída</SelectItem>
                         <SelectItem value="income">Entrada</SelectItem>
                         <SelectItem value="both">Ambos</SelectItem>
                       </SelectContent>
@@ -317,7 +317,7 @@ export default function SettingsPage() {
           )}
           {systemCategories.length > 0 && (
             <div>
-              <p className="text-xs text-muted-foreground mb-2">Categorias padrao</p>
+              <p className="text-xs text-muted-foreground mb-2">Categorias padrão</p>
               <div className="space-y-1">
                 {systemCategories.map((c) => (
                   <div key={c.id} className="flex items-center gap-2 py-1.5">
@@ -342,7 +342,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Palette className="h-4 w-4" />
-            Aparencia
+            Aparência
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -379,7 +379,7 @@ export default function SettingsPage() {
               <Select value={editCatType} onValueChange={(v) => setEditCatType(v as CategoryType)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="expense">Saida</SelectItem>
+                  <SelectItem value="expense">Saída</SelectItem>
                   <SelectItem value="income">Entrada</SelectItem>
                   <SelectItem value="both">Ambos</SelectItem>
                 </SelectContent>
@@ -413,7 +413,7 @@ export default function SettingsPage() {
             <DialogTitle>Excluir categoria</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Tem certeza? Se houver lancamentos usando esta categoria, a exclusao sera bloqueada.
+            Tem certeza? Se houver lançamentos usando esta categoria, a exclusão será bloqueada.
           </p>
           <div className="flex gap-2 mt-4">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteCatOpen(false)}>

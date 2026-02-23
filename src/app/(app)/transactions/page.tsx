@@ -86,8 +86,10 @@ export default function TransactionsPage() {
     setUserId(user.id);
 
     const [year, month] = filterMonth.split("-").map(Number);
-    const startOfMonth = new Date(year, month - 1, 1).toISOString().split("T")[0];
-    const endOfMonth = new Date(year, month, 0).toISOString().split("T")[0];
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const startOfMonth = `${year}-${pad(month)}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
 
     let query = supabase
       .from("transactions")
@@ -163,7 +165,7 @@ export default function TransactionsPage() {
     setEditLoading(true);
     const amountCents = Math.round(parseFloat(editAmount) * 100);
     if (isNaN(amountCents) || amountCents <= 0) {
-      toast.error("Valor invalido");
+      toast.error("Valor inválido");
       setEditLoading(false);
       return;
     }
@@ -182,7 +184,7 @@ export default function TransactionsPage() {
     if (error) {
       toast.error("Erro ao atualizar: " + error.message);
     } else {
-      toast.success("Lancamento atualizado!");
+      toast.success("Lançamento atualizado!");
       setEditOpen(false);
       loadTransactions();
     }
@@ -199,7 +201,7 @@ export default function TransactionsPage() {
     if (error) {
       toast.error("Erro ao excluir: " + error.message);
     } else {
-      toast.success("Lancamento excluido!");
+      toast.success("Lançamento excluído!");
       setDeleteOpen(false);
       loadTransactions();
     }
@@ -213,7 +215,7 @@ export default function TransactionsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Lancamentos</h1>
+        <h1 className="text-2xl font-bold">Lançamentos</h1>
         <Link href="/transactions/new">
           <Button size="sm">
             <Plus className="h-4 w-4 mr-1" />
@@ -231,7 +233,7 @@ export default function TransactionsPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
-              <Label className="text-xs">Mes</Label>
+              <Label className="text-xs">Mês</Label>
               <Input
                 type="month"
                 value={filterMonth}
@@ -248,7 +250,7 @@ export default function TransactionsPage() {
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="income">Entradas</SelectItem>
-                  <SelectItem value="expense">Saidas</SelectItem>
+                  <SelectItem value="expense">Saídas</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -271,7 +273,7 @@ export default function TransactionsPage() {
               <div className="relative">
                 <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Descricao..."
+                  placeholder="Descrição..."
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   className="h-9 pl-8"
@@ -286,9 +288,9 @@ export default function TransactionsPage() {
       {transactions.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            <p>Nenhum lancamento encontrado.</p>
+            <p>Nenhum lançamento encontrado.</p>
             <Link href="/transactions/new" className="text-primary hover:underline text-sm mt-2 block">
-              Criar primeiro lancamento
+              Criar primeiro lançamento
             </Link>
           </CardContent>
         </Card>
@@ -300,7 +302,7 @@ export default function TransactionsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium truncate">
-                      {t.description || "Sem descricao"}
+                      {t.description || "Sem descrição"}
                     </p>
                     <Badge variant="secondary" className="text-xs shrink-0">
                       {(t.categories as CategoryJoin)?.name ?? "Sem categoria"}
@@ -341,7 +343,7 @@ export default function TransactionsPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Editar lancamento</DialogTitle>
+            <DialogTitle>Editar lançamento</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEdit} className="space-y-4">
             <div className="flex gap-2">
@@ -359,7 +361,7 @@ export default function TransactionsPage() {
                 className={`flex-1 ${editType === "expense" ? "bg-red-500 hover:bg-red-600 text-white" : ""}`}
                 onClick={() => setEditType("expense")}
               >
-                Saida
+                Saída
               </Button>
             </div>
             <div className="space-y-2">
@@ -375,7 +377,7 @@ export default function TransactionsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Descricao</Label>
+              <Label>Descrição</Label>
               <Input
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
@@ -393,14 +395,14 @@ export default function TransactionsPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Metodo</Label>
+              <Label>Método</Label>
               <Select value={editPaymentMethod} onValueChange={(v) => setEditPaymentMethod(v as PaymentMethod)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pix">Pix</SelectItem>
                   <SelectItem value="cash">Dinheiro</SelectItem>
-                  <SelectItem value="card">Cartao</SelectItem>
-                  <SelectItem value="transfer">Transferencia</SelectItem>
+                  <SelectItem value="card">Cartão</SelectItem>
+                  <SelectItem value="transfer">Transferência</SelectItem>
                   <SelectItem value="other">Outro</SelectItem>
                 </SelectContent>
               </Select>
@@ -415,7 +417,7 @@ export default function TransactionsPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={editLoading}>
-              {editLoading ? "Salvando..." : "Salvar alteracoes"}
+              {editLoading ? "Salvando..." : "Salvar alterações"}
             </Button>
           </form>
         </DialogContent>
@@ -425,10 +427,10 @@ export default function TransactionsPage() {
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Excluir lancamento</DialogTitle>
+            <DialogTitle>Excluir lançamento</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Tem certeza que deseja excluir este lancamento? Esta acao nao pode ser desfeita.
+            Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.
           </p>
           <div className="flex gap-2 mt-4">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)}>
