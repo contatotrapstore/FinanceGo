@@ -3,17 +3,21 @@ import { NextResponse } from "next/server";
 
 type CategoryJoin = { name: string } | null;
 
+function localDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const tools = [
   {
     type: "function" as const,
     function: {
       name: "get_month_summary",
-      description: "Retorna o resumo financeiro de um mes especifico: entradas, saidas, saldo, contas pendentes e saldo previsto.",
+      description: "Retorna o resumo financeiro de um mês específico: entradas, saídas, saldo, contas pendentes e saldo previsto.",
       parameters: {
         type: "object",
         properties: {
           year: { type: "number", description: "Ano (ex: 2026)" },
-          month: { type: "number", description: "Mes (1-12)" },
+          month: { type: "number", description: "Mês (1-12)" },
         },
         required: ["year", "month"],
       },
@@ -23,11 +27,11 @@ const tools = [
     type: "function" as const,
     function: {
       name: "get_upcoming_payments",
-      description: "Retorna contas/pagamentos pendentes nos proximos N dias.",
+      description: "Retorna contas/pagamentos pendentes nos próximos N dias.",
       parameters: {
         type: "object",
         properties: {
-          days: { type: "number", description: "Numero de dias a frente (ex: 7, 15, 30)" },
+          days: { type: "number", description: "Número de dias à frente (ex: 7, 15, 30)" },
         },
         required: ["days"],
       },
@@ -37,12 +41,12 @@ const tools = [
     type: "function" as const,
     function: {
       name: "get_category_breakdown",
-      description: "Retorna os gastos por categoria de um mes especifico.",
+      description: "Retorna os gastos por categoria de um mês específico.",
       parameters: {
         type: "object",
         properties: {
           year: { type: "number", description: "Ano (ex: 2026)" },
-          month: { type: "number", description: "Mes (1-12)" },
+          month: { type: "number", description: "Mês (1-12)" },
         },
         required: ["year", "month"],
       },
@@ -58,8 +62,10 @@ async function handleToolCall(
 ): Promise<string> {
   if (toolName === "get_month_summary") {
     const { year, month } = args;
-    const startOfMonth = new Date(year, month - 1, 1).toISOString().split("T")[0];
-    const endOfMonth = new Date(year, month, 0).toISOString().split("T")[0];
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const startOfMonth = `${year}-${pad(month)}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
 
     const { data: transactions } = await supabase
       .from("transactions")
@@ -93,8 +99,10 @@ async function handleToolCall(
 
   if (toolName === "get_upcoming_payments") {
     const { days } = args;
-    const today = new Date().toISOString().split("T")[0];
-    const future = new Date(Date.now() + days * 86400000).toISOString().split("T")[0];
+    const now = new Date();
+    const today = localDate(now);
+    const futureDate = new Date(now.getTime() + days * 86400000);
+    const future = localDate(futureDate);
 
     const { data } = await supabase
       .from("scheduled_payments")
@@ -107,7 +115,7 @@ async function handleToolCall(
 
     return JSON.stringify(
       (data ?? []).map((p) => ({
-        titulo: p.title,
+        título: p.title,
         valor: `R$ ${(Number(p.amount_cents) / 100).toFixed(2)}`,
         vencimento: p.due_date,
         tipo: p.kind,
@@ -117,8 +125,10 @@ async function handleToolCall(
 
   if (toolName === "get_category_breakdown") {
     const { year, month } = args;
-    const startOfMonth = new Date(year, month - 1, 1).toISOString().split("T")[0];
-    const endOfMonth = new Date(year, month, 0).toISOString().split("T")[0];
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const startOfMonth = `${year}-${pad(month)}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
 
     const { data: expenses } = await supabase
       .from("transactions")
@@ -144,7 +154,7 @@ async function handleToolCall(
     return JSON.stringify(sorted);
   }
 
-  return JSON.stringify({ error: "Funcao desconhecida" });
+  return JSON.stringify({ error: "Função desconhecida" });
 }
 
 export async function POST(request: Request) {
@@ -152,7 +162,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         content:
-          "A chave da API da OpenAI nao esta configurada. Adicione OPENAI_API_KEY no arquivo .env.local para ativar o chat com IA.",
+          "A chave da API da OpenAI não está configurada. Adicione OPENAI_API_KEY no arquivo .env.local para ativar o chat com IA.",
       },
       { status: 200 }
     );
@@ -161,7 +171,7 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Nao autenticado" }, { status: 401 });
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
   let messages;
@@ -169,27 +179,27 @@ export async function POST(request: Request) {
     const body = await request.json();
     messages = body.messages;
   } catch {
-    return NextResponse.json({ error: "Corpo da requisicao invalido" }, { status: 400 });
+    return NextResponse.json({ error: "Corpo da requisição inválido" }, { status: 400 });
   }
   if (!messages || !Array.isArray(messages)) {
-    return NextResponse.json({ error: "Campo 'messages' e obrigatorio" }, { status: 400 });
+    return NextResponse.json({ error: "Campo 'messages' é obrigatório" }, { status: 400 });
   }
 
   const now = new Date();
   const monthName = now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
-  const systemPrompt = `Voce e o assistente financeiro do FinanceGO. Responda em portugues brasileiro.
-Voce tem acesso a funcoes para consultar os dados financeiros do usuario.
-Use as funcoes sempre que precisar de dados numericos atualizados.
+  const systemPrompt = `Você é o assistente financeiro do FinanceGO. Responda em português brasileiro.
+Você tem acesso a funções para consultar os dados financeiros do usuário.
+Use as funções sempre que precisar de dados numéricos atualizados.
 
-Hoje e ${now.toLocaleDateString("pt-BR")} (${monthName}).
+Hoje é ${now.toLocaleDateString("pt-BR")} (${monthName}).
 
 Regras:
-- Sempre cite o periodo (ex: "em fevereiro/2026")
-- Seja objetivo, com numeros e proximos passos
-- Nao de conselho financeiro profissional, apenas organizacao pessoal
-- Use as funcoes disponiveis para buscar dados antes de responder
-- Quando nao tiver dados suficientes, avise`;
+- Sempre cite o período (ex: "em fevereiro/2026")
+- Seja objetivo, com números e próximos passos
+- Não dê conselho financeiro profissional, apenas organização pessoal
+- Use as funções disponíveis para buscar dados antes de responder
+- Quando não tiver dados suficientes, avise`;
 
   try {
     const openaiMessages: any[] = [
@@ -272,7 +282,7 @@ Regras:
     }
 
     return NextResponse.json({
-      content: assistantMessage.content || "Desculpe, nao consegui gerar uma resposta.",
+      content: assistantMessage.content || "Desculpe, não consegui gerar uma resposta.",
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

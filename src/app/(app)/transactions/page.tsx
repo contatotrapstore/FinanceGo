@@ -56,10 +56,7 @@ export default function TransactionsPage() {
   // Filters
   const [filterType, setFilterType] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [filterMonth, setFilterMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  });
+  const [filterMonth, setFilterMonth] = useState("");
   const [searchText, setSearchText] = useState("");
 
   // Edit dialog
@@ -85,20 +82,22 @@ export default function TransactionsPage() {
     if (!user) return;
     setUserId(user.id);
 
-    const [year, month] = filterMonth.split("-").map(Number);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const startOfMonth = `${year}-${pad(month)}-01`;
-    const lastDay = new Date(year, month, 0).getDate();
-    const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
-
     let query = supabase
       .from("transactions")
       .select("id, type, amount_cents, date, description, category_id, payment_method, categories(name, color, icon)")
       .eq("user_id", user.id)
-      .gte("date", startOfMonth)
-      .lte("date", endOfMonth)
       .order("date", { ascending: false })
-      .limit(100);
+      .limit(200);
+
+    // Apply month filter only when a specific month is selected
+    if (filterMonth) {
+      const [year, month] = filterMonth.split("-").map(Number);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const startOfMonth = `${year}-${pad(month)}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
+      query = query.gte("date", startOfMonth).lte("date", endOfMonth);
+    }
 
     if (filterType !== "all") {
       query = query.eq("type", filterType as "income" | "expense");
@@ -107,7 +106,12 @@ export default function TransactionsPage() {
       query = query.eq("category_id", filterCategory);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error("Erro ao carregar lançamentos:", error);
+      toast.error("Erro ao carregar lançamentos");
+      return;
+    }
     let result = (data ?? []) as Transaction[];
 
     if (searchText.trim()) {
@@ -234,12 +238,29 @@ export default function TransactionsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <Label className="text-xs">Mês</Label>
-              <Input
-                type="month"
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value)}
-                className="h-9"
-              />
+              <div className="flex gap-1">
+                <Input
+                  type="month"
+                  value={filterMonth}
+                  onChange={(e) => setFilterMonth(e.target.value)}
+                  className="h-9 flex-1"
+                />
+                {filterMonth && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-9 px-2 text-xs"
+                    onClick={() => setFilterMonth("")}
+                    title="Mostrar todos os meses"
+                  >
+                    Todos
+                  </Button>
+                )}
+              </div>
+              {!filterMonth && (
+                <p className="text-xs text-muted-foreground mt-0.5">Mostrando todos os meses</p>
+              )}
             </div>
             <div>
               <Label className="text-xs">Tipo</Label>
