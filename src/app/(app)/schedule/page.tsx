@@ -374,58 +374,62 @@ export default function SchedulePage() {
         <div className="space-y-2">
           {payments.map((p) => {
             const isIncome = p.type === "income";
+            const isActive = p.status === "pending" || p.status === "overdue";
             return (
-              <Card key={p.id}>
-                <CardContent className="py-3 px-4 flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate">{p.title}</p>
-                      <Badge className={`text-xs ${statusColors[p.status] ?? ""}`}>
+              <Card key={p.id} className={isIncome ? "border-l-4 border-l-green-500" : "border-l-4 border-l-red-500"}>
+                <CardContent className="py-3 px-4">
+                  {/* Row 1: Title + Value */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold leading-tight">{p.title}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {isIncome ? "Previsão" : "Vence"}: {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
+                      </p>
+                    </div>
+                    <span className={`text-base font-bold shrink-0 ${isIncome ? "text-green-500" : "text-red-500"}`}>
+                      {isIncome ? "+" : "-"}{formatCurrency(Number(p.amount_cents))}
+                    </span>
+                  </div>
+                  {/* Row 2: Badges + Actions */}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge className={`text-[10px] px-1.5 py-0 ${statusColors[p.status] ?? ""}`}>
                         {statusLabel(p)}
                       </Badge>
-                      {!isIncome && (
-                        <Badge variant="outline" className="text-xs">
+                      {isIncome ? (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-green-500/50 text-green-600 dark:text-green-400">
+                          Entrada
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                           {kindLabels[p.kind] ?? p.kind}
                         </Badge>
                       )}
-                      {isIncome && (
-                        <Badge variant="outline" className="text-xs border-green-500/50 text-green-600 dark:text-green-400">
-                          Entrada
-                        </Badge>
-                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {isIncome ? "Previsão" : "Vence"}: {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 ml-3 shrink-0">
-                    <span className={`text-sm font-bold ${isIncome ? "text-green-500" : "text-red-500"}`}>
-                      {isIncome ? "+" : "-"}{formatCurrency(Number(p.amount_cents))}
-                    </span>
-                    {(p.status === "pending" || p.status === "overdue") && (
-                      <>
+                    {isActive && (
+                      <div className="flex items-center gap-0.5">
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-10 w-10 p-0"
+                          className="h-8 w-8 p-0"
                           onClick={() => markAsDone(p.id)}
-                          title={isIncome ? "Marcar como recebido" : "Marcar como pago"}
+                          title={isIncome ? "Receber" : "Pagar"}
                         >
-                          <Check className={`h-4 w-4 ${isIncome ? "text-green-500" : "text-green-500"}`} />
+                          <Check className="h-4 w-4 text-green-500" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(p)} title="Editar">
-                          <Pencil className="h-4 w-4" />
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEdit(p)} title="Editar">
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-10 w-10 p-0 text-destructive hover:text-destructive"
+                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                           onClick={() => { setDeleteId(p.id); setDeleteOpen(true); }}
                           title="Excluir"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
-                      </>
+                      </div>
                     )}
                   </div>
                 </CardContent>

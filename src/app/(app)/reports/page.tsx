@@ -140,16 +140,16 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Relatórios</h1>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={prevMonth}>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-xl lg:text-2xl font-bold shrink-0">Relatórios</h1>
+        <div className="flex items-center gap-1 lg:gap-2">
+          <Button size="sm" variant="outline" onClick={prevMonth} className="h-8 w-8 p-0 lg:h-9 lg:w-9">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-sm font-medium capitalize min-w-[140px] text-center">
+          <span className="text-xs lg:text-sm font-medium capitalize min-w-[100px] lg:min-w-[140px] text-center">
             {formatMonthYear(selectedDate)}
           </span>
-          <Button size="sm" variant="outline" onClick={nextMonth}>
+          <Button size="sm" variant="outline" onClick={nextMonth} className="h-8 w-8 p-0 lg:h-9 lg:w-9">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -196,7 +196,7 @@ export default function ReportsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-2 gap-4 lg:gap-6">
         {/* Pie Chart */}
         <Card>
           <CardHeader>

@@ -235,7 +235,7 @@ export default function TransactionsPage() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Filtros</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
             <div>
               <Label className="text-xs">Mês</Label>
               <div className="flex gap-1">
@@ -318,41 +318,45 @@ export default function TransactionsPage() {
       ) : (
         <div className="space-y-2">
           {transactions.map((t) => (
-            <Card key={t.id}>
-              <CardContent className="py-3 px-4 flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">
+            <Card key={t.id} className={t.type === "income" ? "border-l-4 border-l-green-500" : "border-l-4 border-l-red-500"}>
+              <CardContent className="py-3 px-4">
+                {/* Row 1: Description + Value */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold leading-tight">
                       {t.description || "Sem descrição"}
                     </p>
-                    <Badge variant="secondary" className="text-xs shrink-0">
-                      {(t.categories as CategoryJoin)?.name ?? "Sem categoria"}
-                    </Badge>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")} - {t.payment_method}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")} - {t.payment_method}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 ml-3 shrink-0">
                   <span
-                    className={`text-sm font-bold ${
+                    className={`text-base font-bold shrink-0 ${
                       t.type === "income" ? "text-green-500" : "text-red-500"
                     }`}
                   >
                     {t.type === "income" ? "+" : "-"}
                     {formatCurrency(Number(t.amount_cents))}
                   </span>
-                  <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(t)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-10 w-10 p-0 text-destructive hover:text-destructive"
-                    onClick={() => { setDeleteId(t.id); setDeleteOpen(true); }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                </div>
+                {/* Row 2: Badge + Actions */}
+                <div className="flex items-center justify-between mt-2">
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                    {(t.categories as CategoryJoin)?.name ?? "Sem categoria"}
+                  </Badge>
+                  <div className="flex items-center gap-0.5">
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEdit(t)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => { setDeleteId(t.id); setDeleteOpen(true); }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

@@ -200,15 +200,15 @@ export default async function DashboardPage() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
         {cards.map((card) => (
           <Card key={card.title}>
-            <CardContent className="pt-4 pb-3 px-4">
-              <div className="flex items-center gap-2 mb-1">
-                <card.icon className={`h-4 w-4 ${card.color}`} />
-                <span className="text-sm text-muted-foreground">{card.title}</span>
+            <CardContent className="pt-3 pb-2 px-3 lg:pt-4 lg:pb-3 lg:px-4">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <card.icon className={`h-3.5 w-3.5 lg:h-4 lg:w-4 ${card.color}`} />
+                <span className="text-xs lg:text-sm text-muted-foreground">{card.title}</span>
               </div>
-              <p className={`text-xl font-bold ${card.color}`}>
+              <p className={`text-base lg:text-xl font-bold ${card.color}`}>
                 {formatCurrency(card.value)}
               </p>
             </CardContent>
@@ -231,14 +231,14 @@ export default async function DashboardPage() {
             ) : (
               <div className="space-y-3">
                 {upcoming.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">{p.title}</p>
+                  <div key={p.id} className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{p.title}</p>
                       <p className="text-xs text-muted-foreground">
                         {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
                       </p>
                     </div>
-                    <span className={`text-sm font-semibold ${p.type === "income" ? "text-green-500" : "text-red-500"}`}>
+                    <span className={`text-sm font-semibold shrink-0 ${p.type === "income" ? "text-green-500" : "text-red-500"}`}>
                       {p.type === "income" ? "+" : ""}{formatCurrency(Number(p.amount_cents))}
                     </span>
                   </div>
@@ -268,14 +268,14 @@ export default async function DashboardPage() {
             ) : (
               <div className="space-y-3">
                 {recent.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">{t.description || "Sem descrição"}</p>
-                      <p className="text-xs text-muted-foreground">
+                  <div key={t.id} className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{t.description || "Sem descrição"}</p>
+                      <p className="text-xs text-muted-foreground truncate">
                         {(t.categories as CategoryJoin)?.name ?? "Sem categoria"} - {new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR")}
                       </p>
                     </div>
-                    <span className={`text-sm font-semibold ${t.type === "income" ? "text-green-500" : "text-red-500"}`}>
+                    <span className={`text-sm font-semibold shrink-0 ${t.type === "income" ? "text-green-500" : "text-red-500"}`}>
                       {t.type === "income" ? "+" : "-"}{formatCurrency(Number(t.amount_cents))}
                     </span>
                   </div>
