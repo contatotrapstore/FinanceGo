@@ -128,6 +128,7 @@ export type Database = {
           paid_transaction_id: string | null
           status: Database["public"]["Enums"]["scheduled_status"]
           title: string
+          type: "income" | "expense"
           user_id: string
           wallet_id: string
         }
@@ -142,6 +143,7 @@ export type Database = {
           paid_transaction_id?: string | null
           status?: Database["public"]["Enums"]["scheduled_status"]
           title: string
+          type?: "income" | "expense"
           user_id: string
           wallet_id: string
         }
@@ -156,6 +158,7 @@ export type Database = {
           paid_transaction_id?: string | null
           status?: Database["public"]["Enums"]["scheduled_status"]
           title?: string
+          type?: "income" | "expense"
           user_id?: string
           wallet_id?: string
         }

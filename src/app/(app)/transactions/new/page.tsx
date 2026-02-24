@@ -109,6 +109,7 @@ export default function NewTransactionPage() {
         amount_cents: amountCents,
         due_date: date,
         kind: "other" as const,
+        type,
       });
 
       if (error) {
@@ -117,7 +118,7 @@ export default function NewTransactionPage() {
         return;
       }
 
-      toast.success("Conta futura criada na Agenda!");
+      toast.success(type === "income" ? "Recebimento agendado!" : "Conta futura criada na Agenda!");
       router.push("/schedule");
       router.refresh();
     } else {

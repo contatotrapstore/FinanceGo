@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User, MessageSquare, Plus } from "lucide-react";
+import { Send, Bot, User, MessageSquare, Plus, Mic } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
@@ -16,8 +16,50 @@ export default function AIChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
   const supabase = createClient();
+
+  // Check speech recognition support
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      setSpeechSupported(true);
+      const recognition = new SR();
+      recognition.lang = "pt-BR";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput((prev) => (prev ? prev + " " + transcript : transcript));
+        setIsListening(false);
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  function toggleListening() {
+    if (!recognitionRef.current) return;
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -196,14 +238,14 @@ export default function AIChatPage() {
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <Bot className="h-12 w-12 mb-3 opacity-50" />
               <p className="text-sm">Olá! Sou o assistente do FinanceGO.</p>
-              <p className="text-xs mt-1">Consulte, crie lançamentos e gerencie contas por aqui.</p>
+              <p className="text-xs mt-1">Fale ou digite para criar lançamentos e gerenciar suas finanças.</p>
               <div className="mt-4 space-y-2">
                 {[
                   "Recebi 5000 reais de salário",
                   "Gastei 300 reais no mercado",
+                  "Vou receber 2000 de freelance dia 28",
                   "Tenho conta de 50 reais todo dia 10",
                   "Se pagar tudo, fico com quanto?",
-                  "Quais contas vencem essa semana?",
                 ].map((q) => (
                   <button
                     key={q}
@@ -264,10 +306,23 @@ export default function AIChatPage() {
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Pergunte algo..."
+          placeholder={isListening ? "Ouvindo..." : "Pergunte algo..."}
           disabled={loading}
           className="flex-1"
         />
+        {speechSupported && (
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            onClick={toggleListening}
+            disabled={loading}
+            className={isListening ? "text-red-500 animate-pulse border-red-500" : "text-muted-foreground"}
+            title={isListening ? "Parar gravação" : "Falar"}
+          >
+            <Mic className="h-4 w-4" />
+          </Button>
+        )}
         <Button type="submit" size="icon" disabled={loading || !input.trim()}>
           <Send className="h-4 w-4" />
         </Button>

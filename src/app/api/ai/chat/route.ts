@@ -76,14 +76,15 @@ const tools = [
     type: "function" as const,
     function: {
       name: "create_scheduled_payment",
-      description: "Cria uma conta futura na Agenda (pagamento que ainda vai acontecer). Use para contas mensais, parcelas, assinaturas, boletos futuros, etc.",
+      description: "Cria um agendamento na Agenda (pagamento ou recebimento futuro). Use para contas mensais, parcelas, assinaturas, boletos futuros, freelances a receber, salários futuros, etc.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Nome da conta (ex: 'Aluguel', 'Netflix', 'Parcela carro')" },
+          title: { type: "string", description: "Nome (ex: 'Aluguel', 'Netflix', 'Freelance site', 'Salário')" },
           amount: { type: "number", description: "Valor em reais (ex: 50.00, 1200)" },
-          due_date: { type: "string", description: "Data de vencimento no formato YYYY-MM-DD" },
-          kind: { type: "string", enum: ["credit_card", "loan", "fixed_bill", "subscription", "variable_bill", "other"], description: "Tipo da conta. Padrão: other" },
+          due_date: { type: "string", description: "Data de vencimento/previsão no formato YYYY-MM-DD" },
+          payment_type: { type: "string", enum: ["income", "expense"], description: "income = entrada/recebimento futuro, expense = conta/saída futura. Padrão: expense" },
+          kind: { type: "string", enum: ["credit_card", "loan", "fixed_bill", "subscription", "variable_bill", "other"], description: "Categoria da conta (só para expense). Padrão: other" },
         },
         required: ["title", "amount", "due_date"],
       },
@@ -246,6 +247,7 @@ async function handleToolCall(
     const amountCents = Math.round((args.amount ?? 0) * 100);
     if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido" });
 
+    const paymentType = args.payment_type || "expense";
     const { error } = await supabase.from("scheduled_payments").insert({
       user_id: userId,
       wallet_id: walletId,
@@ -253,13 +255,15 @@ async function handleToolCall(
       amount_cents: amountCents,
       due_date: args.due_date,
       kind: args.kind || "other",
+      type: paymentType,
     });
 
     if (error) return JSON.stringify({ erro: error.message });
 
+    const label = paymentType === "income" ? "Recebimento" : "Conta";
     return JSON.stringify({
       sucesso: true,
-      mensagem: `Conta "${args.title}" de R$ ${args.amount.toFixed(2)} criada na Agenda para ${args.due_date}`,
+      mensagem: `${label} "${args.title}" de R$ ${args.amount.toFixed(2)} agendado na Agenda para ${args.due_date}`,
     });
   }
 
@@ -270,7 +274,7 @@ async function handleToolCall(
     // Search for the payment by partial title match
     const { data: payments } = await supabase
       .from("scheduled_payments")
-      .select("id, title, amount_cents, due_date")
+      .select("id, title, amount_cents, due_date, type")
       .eq("user_id", userId)
       .in("status", ["pending", "overdue"])
       .ilike("title", `%${args.title}%`)
@@ -281,12 +285,13 @@ async function handleToolCall(
     }
 
     const payment = payments[0];
+    const isIncome = payment.type === "income";
 
-    // Create transaction
+    // Create transaction with correct type
     const { data: txData, error: txError } = await supabase.from("transactions").insert({
       user_id: userId,
       wallet_id: walletId,
-      type: "expense" as const,
+      type: isIncome ? "income" as const : "expense" as const,
       amount_cents: payment.amount_cents,
       date: payment.due_date,
       description: payment.title,
@@ -295,15 +300,17 @@ async function handleToolCall(
 
     if (txError) return JSON.stringify({ erro: txError.message });
 
-    // Mark as paid
+    // Mark as paid/received
     await supabase
       .from("scheduled_payments")
       .update({ status: "paid", paid_transaction_id: txData?.id ?? null })
       .eq("id", payment.id);
 
+    const actionLabel = isIncome ? "recebida" : "paga";
+    const txLabel = isIncome ? "Entrada" : "Saída";
     return JSON.stringify({
       sucesso: true,
-      mensagem: `"${payment.title}" marcada como paga! Lançamento de R$ ${(payment.amount_cents / 100).toFixed(2)} criado em ${payment.due_date}`,
+      mensagem: `"${payment.title}" marcada como ${actionLabel}! ${txLabel} de R$ ${(payment.amount_cents / 100).toFixed(2)} criada em ${payment.due_date}`,
     });
   }
 
@@ -361,7 +368,8 @@ Regras:
 - Após criar algo, confirme o que foi criado com os valores
 - Se o usuário falar "gastei X em Y", crie como expense com data de hoje
 - Se o usuário falar "recebi X" ou "entrou X", crie como income com data de hoje
-- Se o usuário falar "tenho conta de X todo dia Y", crie como scheduled_payment
+- Se o usuário falar "tenho conta de X todo dia Y", crie como scheduled_payment com payment_type: "expense"
+- Se o usuário falar "vou receber X", "tenho X pra receber", crie como scheduled_payment com payment_type: "income"
 - Valores são em reais (BRL). Ex: "300 reais" = amount: 300`;
 
   try {

@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Check, CalendarClock, Pencil, Trash2 } from "lucide-react";
+import { Plus, Check, CalendarClock, Pencil, Trash2, TrendingUp, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import type { Database } from "@/lib/supabase/types";
 
@@ -35,6 +35,7 @@ type ScheduledPayment = {
   due_date: string;
   kind: string;
   status: string;
+  type: "income" | "expense";
 };
 
 const kindLabels: Record<string, string> = {
@@ -60,6 +61,7 @@ export default function SchedulePage() {
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [kind, setKind] = useState<ScheduledKind>("other");
+  const [type, setType] = useState<"income" | "expense">("expense");
   const [walletId, setWalletId] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -70,6 +72,7 @@ export default function SchedulePage() {
   const [editAmount, setEditAmount] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
   const [editKind, setEditKind] = useState<ScheduledKind>("other");
+  const [editType, setEditType] = useState<"income" | "expense">("expense");
   const [editLoading, setEditLoading] = useState(false);
 
   // Delete state
@@ -99,15 +102,14 @@ export default function SchedulePage() {
           .from("scheduled_payments")
           .update({ status: "overdue" })
           .in("id", overdueIds);
-        // Refresh the data after update
         const { data: refreshed } = await supabase
           .from("scheduled_payments")
           .select("*")
           .eq("user_id", user.id)
           .order("due_date", { ascending: true });
-        if (refreshed) setPayments(refreshed);
+        if (refreshed) setPayments(refreshed as ScheduledPayment[]);
       } else {
-        setPayments(data);
+        setPayments(data as ScheduledPayment[]);
       }
     }
   }, []);
@@ -147,34 +149,37 @@ export default function SchedulePage() {
       amount_cents: amountCents,
       due_date: dueDate,
       kind,
+      type,
     });
 
     if (error) {
       toast.error("Erro: " + error.message);
     } else {
-      toast.success("Conta criada!");
+      toast.success(type === "income" ? "Recebimento agendado!" : "Conta criada!");
       setCreateOpen(false);
       setTitle("");
       setAmount("");
       setDueDate("");
       setKind("other");
+      setType("expense");
       loadPayments();
     }
     setLoading(false);
   }
 
-  async function markAsPaid(id: string) {
+  async function markAsDone(id: string) {
     const payment = payments.find((p) => p.id === id);
     if (!payment) return;
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Use due_date for the transaction (preserves cash flow accuracy)
+    const isIncome = payment.type === "income";
+
     const { data: txData, error: txError } = await supabase.from("transactions").insert({
       user_id: user.id,
       wallet_id: walletId,
-      type: "expense" as const,
+      type: isIncome ? "income" as const : "expense" as const,
       amount_cents: payment.amount_cents,
       date: payment.due_date,
       description: payment.title,
@@ -192,9 +197,9 @@ export default function SchedulePage() {
       .eq("id", id);
 
     if (error) {
-      toast.error("Erro ao marcar como pago");
+      toast.error(isIncome ? "Erro ao marcar como recebido" : "Erro ao marcar como pago");
     } else {
-      toast.success("Pago! Lançamento criado automaticamente.");
+      toast.success(isIncome ? "Recebido! Entrada criada automaticamente." : "Pago! Saída criada automaticamente.");
       loadPayments();
     }
   }
@@ -205,6 +210,7 @@ export default function SchedulePage() {
     setEditAmount((Number(p.amount_cents) / 100).toFixed(2));
     setEditDueDate(p.due_date);
     setEditKind(p.kind as ScheduledKind);
+    setEditType(p.type || "expense");
     setEditOpen(true);
   }
 
@@ -224,6 +230,7 @@ export default function SchedulePage() {
         amount_cents: amountCents,
         due_date: editDueDate,
         kind: editKind,
+        type: editType,
       })
       .eq("id", editId);
 
@@ -254,6 +261,13 @@ export default function SchedulePage() {
     setDeleteLoading(false);
   }
 
+  const statusLabel = (p: ScheduledPayment) => {
+    if (p.status === "paid") return p.type === "income" ? "Recebido" : "Pago";
+    if (p.status === "pending") return "Pendente";
+    if (p.status === "overdue") return p.type === "income" ? "Atrasado" : "Atrasado";
+    return "Cancelado";
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -267,13 +281,40 @@ export default function SchedulePage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Nova conta futura</DialogTitle>
+              <DialogTitle>Novo agendamento</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreate} className="space-y-4">
+              {/* Type toggle */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setType("income")}
+                  className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                    type === "income"
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 ring-2 ring-green-500"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <TrendingUp className="h-4 w-4" />
+                  Entrada
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType("expense")}
+                  className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                    type === "expense"
+                      ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 ring-2 ring-red-500"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <TrendingDown className="h-4 w-4" />
+                  Saída
+                </button>
+              </div>
               <div className="space-y-2">
                 <Label>Título</Label>
                 <Input
-                  placeholder="Ex: Cartão Nubank, Aluguel..."
+                  placeholder={type === "income" ? "Ex: Freelance, Salário..." : "Ex: Cartão Nubank, Aluguel..."}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   required
@@ -293,7 +334,7 @@ export default function SchedulePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Vencimento</Label>
+                <Label>{type === "income" ? "Data prevista" : "Vencimento"}</Label>
                 <Input
                   type="date"
                   value={dueDate}
@@ -301,19 +342,21 @@ export default function SchedulePage() {
                   required
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Tipo</Label>
-                <Select value={kind} onValueChange={(v) => setKind(v as ScheduledKind)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(kindLabels).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {type === "expense" && (
+                <div className="space-y-2">
+                  <Label>Categoria</Label>
+                  <Select value={kind} onValueChange={(v) => setKind(v as ScheduledKind)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(kindLabels).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Salvando..." : "Criar"}
+                {loading ? "Salvando..." : type === "income" ? "Agendar recebimento" : "Criar conta"}
               </Button>
             </form>
           </DialogContent>
@@ -329,50 +372,66 @@ export default function SchedulePage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {payments.map((p) => (
-            <Card key={p.id}>
-              <CardContent className="py-3 px-4 flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">{p.title}</p>
-                    <Badge className={`text-xs ${statusColors[p.status] ?? ""}`}>
-                      {p.status === "pending" ? "Pendente" : p.status === "paid" ? "Pago" : p.status === "overdue" ? "Atrasado" : "Cancelado"}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      {kindLabels[p.kind] ?? p.kind}
-                    </Badge>
+          {payments.map((p) => {
+            const isIncome = p.type === "income";
+            return (
+              <Card key={p.id}>
+                <CardContent className="py-3 px-4 flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{p.title}</p>
+                      <Badge className={`text-xs ${statusColors[p.status] ?? ""}`}>
+                        {statusLabel(p)}
+                      </Badge>
+                      {!isIncome && (
+                        <Badge variant="outline" className="text-xs">
+                          {kindLabels[p.kind] ?? p.kind}
+                        </Badge>
+                      )}
+                      {isIncome && (
+                        <Badge variant="outline" className="text-xs border-green-500/50 text-green-600 dark:text-green-400">
+                          Entrada
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {isIncome ? "Previsão" : "Vence"}: {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Vence: {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 ml-3 shrink-0">
-                  <span className="text-sm font-bold text-red-500">
-                    {formatCurrency(Number(p.amount_cents))}
-                  </span>
-                  {p.status === "pending" && (
-                    <>
-                      <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => markAsPaid(p.id)} title="Marcar como pago">
-                        <Check className="h-4 w-4 text-green-500" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(p)} title="Editar">
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-10 w-10 p-0 text-destructive hover:text-destructive"
-                        onClick={() => { setDeleteId(p.id); setDeleteOpen(true); }}
-                        title="Excluir"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="flex items-center gap-1 ml-3 shrink-0">
+                    <span className={`text-sm font-bold ${isIncome ? "text-green-500" : "text-red-500"}`}>
+                      {isIncome ? "+" : "-"}{formatCurrency(Number(p.amount_cents))}
+                    </span>
+                    {(p.status === "pending" || p.status === "overdue") && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-10 w-10 p-0"
+                          onClick={() => markAsDone(p.id)}
+                          title={isIncome ? "Marcar como recebido" : "Marcar como pago"}
+                        >
+                          <Check className={`h-4 w-4 ${isIncome ? "text-green-500" : "text-green-500"}`} />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(p)} title="Editar">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-10 w-10 p-0 text-destructive hover:text-destructive"
+                          onClick={() => { setDeleteId(p.id); setDeleteOpen(true); }}
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -380,9 +439,36 @@ export default function SchedulePage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Editar conta</DialogTitle>
+            <DialogTitle>Editar agendamento</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEdit} className="space-y-4">
+            {/* Type toggle */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setEditType("income")}
+                className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                  editType === "income"
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 ring-2 ring-green-500"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                <TrendingUp className="h-4 w-4" />
+                Entrada
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditType("expense")}
+                className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                  editType === "expense"
+                    ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 ring-2 ring-red-500"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                <TrendingDown className="h-4 w-4" />
+                Saída
+              </button>
+            </div>
             <div className="space-y-2">
               <Label>Título</Label>
               <Input
@@ -404,7 +490,7 @@ export default function SchedulePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Vencimento</Label>
+              <Label>{editType === "income" ? "Data prevista" : "Vencimento"}</Label>
               <Input
                 type="date"
                 value={editDueDate}
@@ -412,17 +498,19 @@ export default function SchedulePage() {
                 required
               />
             </div>
-            <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Select value={editKind} onValueChange={(v) => setEditKind(v as ScheduledKind)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(kindLabels).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>{v}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {editType === "expense" && (
+              <div className="space-y-2">
+                <Label>Categoria</Label>
+                <Select value={editKind} onValueChange={(v) => setEditKind(v as ScheduledKind)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(kindLabels).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <Button type="submit" className="w-full" disabled={editLoading}>
               {editLoading ? "Salvando..." : "Salvar alterações"}
             </Button>

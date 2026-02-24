@@ -67,11 +67,14 @@ export default async function DashboardPage() {
     .eq("user_id", user.id)
     .in("status", ["pending", "overdue"]);
 
-  const allPendingTotal = (allPendingPayments ?? []).reduce(
-    (sum, p) => sum + Number(p.amount_cents),
-    0
-  );
-  const projected = saldoAtual - allPendingTotal;
+  const pendingExpenses = (allPendingPayments ?? [])
+    .filter((p) => p.type !== "income")
+    .reduce((sum, p) => sum + Number(p.amount_cents), 0);
+  const pendingIncome = (allPendingPayments ?? [])
+    .filter((p) => p.type === "income")
+    .reduce((sum, p) => sum + Number(p.amount_cents), 0);
+  const allPendingTotal = pendingExpenses;
+  const projected = saldoAtual - pendingExpenses + pendingIncome;
 
   // Upcoming payments (next 30 days)
   const d30 = new Date(now.getTime() + 30 * 86400000);
@@ -126,11 +129,11 @@ export default async function DashboardPage() {
                 {formatCurrency(saldoAtual)}
               </p>
             </div>
-            {allPendingTotal > 0 && (
+            {(pendingExpenses > 0 || pendingIncome > 0) && (
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Após pagar pendentes</p>
-                <p className={`text-lg font-semibold ${saldoAtual - allPendingTotal >= 0 ? "text-primary" : "text-red-500"}`}>
-                  {formatCurrency(saldoAtual - allPendingTotal)}
+                <p className="text-xs text-muted-foreground">Após pendências</p>
+                <p className={`text-lg font-semibold ${projected >= 0 ? "text-primary" : "text-red-500"}`}>
+                  {formatCurrency(projected)}
                 </p>
               </div>
             )}
@@ -141,7 +144,8 @@ export default async function DashboardPage() {
               ? `Você gastou ${formatCurrency(expense)} este mês.`
               : "Nenhum gasto registrado este mês."
             }
-            {allPendingTotal > 0 && ` Faltam ${formatCurrency(allPendingTotal)} em contas pendentes.`}
+            {pendingExpenses > 0 && ` Faltam ${formatCurrency(pendingExpenses)} em contas a pagar.`}
+            {pendingIncome > 0 && ` ${formatCurrency(pendingIncome)} a receber.`}
           </p>
         </CardContent>
       </Card>
@@ -234,8 +238,8 @@ export default async function DashboardPage() {
                         {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold text-red-500">
-                      {formatCurrency(Number(p.amount_cents))}
+                    <span className={`text-sm font-semibold ${p.type === "income" ? "text-green-500" : "text-red-500"}`}>
+                      {p.type === "income" ? "+" : ""}{formatCurrency(Number(p.amount_cents))}
                     </span>
                   </div>
                 ))}
