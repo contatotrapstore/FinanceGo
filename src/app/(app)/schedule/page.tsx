@@ -369,9 +369,9 @@ export default function SchedulePage() {
         if (active.length === 0) return null;
         const periods = [
           { label: "1–10", min: 1, max: 10 },
-          { label: "11–15", min: 11, max: 15 },
-          { label: "16–20", min: 16, max: 20 },
-          { label: "21–31", min: 21, max: 31 },
+          { label: "11–16", min: 11, max: 16 },
+          { label: "17–23", min: 17, max: 23 },
+          { label: "24–31", min: 24, max: 31 },
         ];
         const data = periods.map((period) => {
           const items = active.filter((p) => {
