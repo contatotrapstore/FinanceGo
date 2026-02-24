@@ -89,10 +89,12 @@ export default async function DashboardPage() {
     .order("due_date", { ascending: true })
     .limit(5);
 
-  // Urgent payments (next 3 days)
+  // Urgent payments (next 3 days) — split by type
   const d3 = new Date(now.getTime() + 3 * 86400000);
   const in3 = `${d3.getFullYear()}-${pad(d3.getMonth() + 1)}-${pad(d3.getDate())}`;
-  const urgentPayments = (upcoming ?? []).filter((p) => p.due_date <= in3);
+  const urgentAll = (upcoming ?? []).filter((p) => p.due_date <= in3);
+  const urgentBills = urgentAll.filter((p) => p.type !== "income");
+  const urgentReceivables = urgentAll.filter((p) => p.type === "income");
 
   // Recent transactions
   const { data: recent } = await supabase
@@ -175,22 +177,46 @@ export default async function DashboardPage() {
         </Card>
       )}
 
-      {/* Urgent Payment Alert */}
-      {urgentPayments.length > 0 && (
+      {/* Urgent Bills Alert (expenses only) */}
+      {urgentBills.length > 0 && (
         <Card className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
           <CardContent className="py-3 px-4">
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                  {urgentPayments.length === 1
+                  {urgentBills.length === 1
                     ? "Conta vencendo em breve!"
-                    : `${urgentPayments.length} contas vencem nos próximos 3 dias!`
+                    : `${urgentBills.length} contas vencem nos próximos 3 dias!`
                   }
                 </p>
-                {urgentPayments.map((p) => (
+                {urgentBills.map((p) => (
                   <p key={p.id} className="text-xs text-yellow-700 dark:text-yellow-300 mt-0.5">
                     {p.title}: {formatCurrency(Number(p.amount_cents))} — vence {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upcoming Receivables Alert (income only) */}
+      {urgentReceivables.length > 0 && (
+        <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-start gap-2">
+              <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                  {urgentReceivables.length === 1
+                    ? "Recebimento previsto em breve!"
+                    : `${urgentReceivables.length} recebimentos previstos nos próximos 3 dias!`
+                  }
+                </p>
+                {urgentReceivables.map((p) => (
+                  <p key={p.id} className="text-xs text-green-700 dark:text-green-300 mt-0.5">
+                    {p.title}: +{formatCurrency(Number(p.amount_cents))} — previsto {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
                   </p>
                 ))}
               </div>
@@ -222,12 +248,12 @@ export default async function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <CalendarClock className="h-4 w-4" />
-              Próximos pagamentos
+              Agenda
             </CardTitle>
           </CardHeader>
           <CardContent>
             {(!upcoming || upcoming.length === 0) ? (
-              <p className="text-sm text-muted-foreground">Nenhum pagamento pendente</p>
+              <p className="text-sm text-muted-foreground">Nenhuma pendência agendada</p>
             ) : (
               <div className="space-y-3">
                 {upcoming.map((p) => (
@@ -236,10 +262,14 @@ export default async function DashboardPage() {
                       <p className="text-sm font-medium truncate">{p.title}</p>
                       <p className="text-xs text-muted-foreground">
                         {new Date(p.due_date + "T12:00:00").toLocaleDateString("pt-BR")}
+                        {" — "}
+                        <span className={p.type === "income" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                          {p.type === "income" ? "recebimento" : "conta"}
+                        </span>
                       </p>
                     </div>
                     <span className={`text-sm font-semibold shrink-0 ${p.type === "income" ? "text-green-500" : "text-red-500"}`}>
-                      {p.type === "income" ? "+" : ""}{formatCurrency(Number(p.amount_cents))}
+                      {p.type === "income" ? "+" : "-"}{formatCurrency(Number(p.amount_cents))}
                     </span>
                   </div>
                 ))}
