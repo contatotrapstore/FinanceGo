@@ -170,18 +170,16 @@ export default function SchedulePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-
-    const { error: txError } = await supabase.from("transactions").insert({
+    // Use due_date for the transaction (preserves cash flow accuracy)
+    const { data: txData, error: txError } = await supabase.from("transactions").insert({
       user_id: user.id,
       wallet_id: walletId,
       type: "expense" as const,
       amount_cents: payment.amount_cents,
-      date: todayStr,
+      date: payment.due_date,
       description: payment.title,
       payment_method: "other" as const,
-    });
+    }).select("id").single();
 
     if (txError) {
       toast.error("Erro ao criar lançamento: " + txError.message);
@@ -190,7 +188,7 @@ export default function SchedulePage() {
 
     const { error } = await supabase
       .from("scheduled_payments")
-      .update({ status: "paid" })
+      .update({ status: "paid", paid_transaction_id: txData?.id ?? null })
       .eq("id", id);
 
     if (error) {
