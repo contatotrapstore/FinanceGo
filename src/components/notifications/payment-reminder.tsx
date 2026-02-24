@@ -32,25 +32,27 @@ export function PaymentReminder() {
       const today = localDateStr(now);
       const in3Days = localDateStr(new Date(now.getTime() + 3 * 86400000));
 
-      // Check for payments due in the next 3 days
+      // Check for expense payments due in the next 3 days (ignore income)
       const { data: upcoming } = await supabase
         .from("scheduled_payments")
-        .select("title, amount_cents, due_date")
+        .select("title, amount_cents, due_date, type")
         .eq("user_id", user.id)
         .in("status", ["pending", "overdue"])
         .gte("due_date", today)
         .lte("due_date", in3Days)
+        .neq("type", "income")
         .order("due_date", { ascending: true });
 
       if (!upcoming || upcoming.length === 0) return;
 
-      // Check overdue payments too
+      // Check overdue expense payments too
       const { data: overdue } = await supabase
         .from("scheduled_payments")
-        .select("title, amount_cents, due_date")
+        .select("title, amount_cents, due_date, type")
         .eq("user_id", user.id)
         .eq("status", "overdue")
         .lt("due_date", today)
+        .neq("type", "income")
         .order("due_date", { ascending: true })
         .limit(5);
 

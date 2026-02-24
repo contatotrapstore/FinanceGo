@@ -18,8 +18,8 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/transactions", label: "Lançamentos", icon: ArrowLeftRight },
   { href: "/schedule", label: "Agenda", icon: CalendarClock },
-  { href: "/reports", label: "Relatórios", icon: BarChart3 },
   { href: "/ai", label: "IA Chat", icon: MessageSquare },
+  { href: "/reports", label: "Relatórios", icon: BarChart3 },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 export function Sidebar() {

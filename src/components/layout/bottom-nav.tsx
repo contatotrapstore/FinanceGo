@@ -13,8 +13,8 @@ const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/schedule", label: "Agenda", icon: CalendarClock },
   { href: "/transactions/new", label: "Lançar", icon: Plus, isMain: true },
-  { href: "/reports", label: "Relatórios", icon: BarChart3 },
   { href: "/ai", label: "IA", icon: MessageSquare },
+  { href: "/reports", label: "Relatórios", icon: BarChart3 },
 ];
 export function BottomNav() {
   const pathname = usePathname();

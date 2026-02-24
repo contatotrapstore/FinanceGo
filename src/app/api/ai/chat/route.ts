@@ -164,7 +164,7 @@ async function handleToolCall(
 
     const { data } = await supabase
       .from("scheduled_payments")
-      .select("title, amount_cents, due_date, kind, status")
+      .select("title, amount_cents, due_date, kind, status, type")
       .eq("user_id", userId)
       .in("status", ["pending", "overdue"])
       .gte("due_date", today)
@@ -177,6 +177,7 @@ async function handleToolCall(
         valor: `R$ ${(Number(p.amount_cents) / 100).toFixed(2)}`,
         vencimento: p.due_date,
         tipo: p.kind,
+        direção: p.type === "income" ? "recebimento" : "pagamento",
       }))
     );
   }

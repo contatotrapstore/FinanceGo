@@ -4,12 +4,17 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User, MessageSquare, Plus, Mic } from "lucide-react";
+import { Send, Bot, User, MessageSquare, Plus, Mic, MicOff } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
 };
+
+function getSpeechRecognition(): any {
+  if (typeof window === "undefined") return null;
+  return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+}
 
 export default function AIChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -20,44 +25,95 @@ export default function AIChatPage() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
-  // Check speech recognition support
+  // Check speech support on mount
   useEffect(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SR) {
-      setSpeechSupported(true);
-      const recognition = new SR();
-      recognition.lang = "pt-BR";
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput((prev) => (prev ? prev + " " + transcript : transcript));
-        setIsListening(false);
-      };
-
-      recognition.onerror = () => {
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
+    setSpeechSupported(!!getSpeechRecognition());
   }, []);
 
-  function toggleListening() {
-    if (!recognitionRef.current) return;
-    if (isListening) {
-      recognitionRef.current.stop();
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch {}
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
+  function startListening() {
+    const SR = getSpeechRecognition();
+    if (!SR) return;
+
+    // Always create a fresh instance (fixes mobile bugs)
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+    }
+
+    const recognition = new SR();
+    recognition.lang = "pt-BR";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    let finalTranscript = "";
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interim = transcript;
+        }
+      }
+      // Show live preview
+      const display = finalTranscript + interim;
+      if (display) {
+        setInput(display);
+      }
+    };
+
+    recognition.onend = () => {
       setIsListening(false);
+      recognitionRef.current = null;
+      // Focus input so user can see result and submit
+      setTimeout(() => inputRef.current?.focus(), 100);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn("Speech error:", event.error);
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setInput(""); // Clear input for fresh voice input
+    setIsListening(true);
+
+    try {
+      recognition.start();
+    } catch {
+      setIsListening(false);
+      recognitionRef.current = null;
+    }
+  }
+
+  function stopListening() {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+    setIsListening(false);
+  }
+
+  function toggleListening() {
+    if (isListening) {
+      stopListening();
     } else {
-      recognitionRef.current.start();
-      setIsListening(true);
+      startListening();
     }
   }
 
@@ -152,6 +208,9 @@ export default function AIChatPage() {
     e.preventDefault();
     if (!input.trim() || loading) return;
 
+    // Stop listening if still active
+    if (isListening) stopListening();
+
     const userMessage: Message = { role: "user", content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
@@ -215,31 +274,34 @@ export default function AIChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-5rem)]">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <MessageSquare className="h-6 w-6" />
-            FinanceGO IA
+    <div className="flex flex-col h-[calc(100dvh-10rem)] lg:h-[calc(100vh-5rem)]">
+      {/* Header - compact on mobile */}
+      <div className="mb-2 lg:mb-4 flex items-center justify-between">
+        <div className="min-w-0">
+          <h1 className="text-lg lg:text-2xl font-bold flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 lg:h-6 lg:w-6 shrink-0" />
+            <span className="truncate">FinanceGO IA</span>
           </h1>
-          <p className="text-muted-foreground text-sm">
-            Pergunte sobre suas finanças
+          <p className="text-muted-foreground text-xs lg:text-sm">
+            Pergunte ou fale sobre suas finanças
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={startNewConversation}>
+        <Button size="sm" variant="outline" onClick={startNewConversation} className="shrink-0 ml-2">
           <Plus className="h-4 w-4 mr-1" />
-          Nova conversa
+          <span className="hidden sm:inline">Nova conversa</span>
+          <span className="sm:hidden">Nova</span>
         </Button>
       </div>
+
       {/* Messages */}
-      <Card className="flex-1 overflow-hidden">
-        <CardContent className="h-full overflow-y-auto p-4 space-y-4">
+      <Card className="flex-1 overflow-hidden min-h-0">
+        <CardContent className="h-full overflow-y-auto p-3 lg:p-4 space-y-3 lg:space-y-4">
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <Bot className="h-12 w-12 mb-3 opacity-50" />
-              <p className="text-sm">Olá! Sou o assistente do FinanceGO.</p>
-              <p className="text-xs mt-1">Fale ou digite para criar lançamentos e gerenciar suas finanças.</p>
-              <div className="mt-4 space-y-2">
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground px-2">
+              <Bot className="h-10 w-10 lg:h-12 lg:w-12 mb-2 lg:mb-3 opacity-50" />
+              <p className="text-sm text-center">Olá! Sou o assistente do FinanceGO.</p>
+              <p className="text-xs mt-1 text-center">Fale ou digite para criar lançamentos e gerenciar suas finanças.</p>
+              <div className="mt-3 lg:mt-4 space-y-1.5 lg:space-y-2 w-full max-w-xs">
                 {[
                   "Recebi 5000 reais de salário",
                   "Gastei 300 reais no mercado",
@@ -250,7 +312,7 @@ export default function AIChatPage() {
                   <button
                     key={q}
                     onClick={() => setInput(q)}
-                    className="block text-xs text-primary hover:underline"
+                    className="block w-full text-left text-xs text-primary hover:underline py-0.5"
                   >
                     {q}
                   </button>
@@ -261,35 +323,35 @@ export default function AIChatPage() {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}
+              className={`flex gap-2 lg:gap-3 ${msg.role === "user" ? "justify-end" : ""}`}
             >
               {msg.role === "assistant" && (
-                <div className="shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-primary" />
+                <div className="shrink-0 h-7 w-7 lg:h-8 lg:w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-3.5 w-3.5 lg:h-4 lg:w-4 text-primary" />
                 </div>
               )}
               <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
+                className={`max-w-[85%] lg:max-w-[80%] rounded-2xl px-3 lg:px-4 py-2 lg:py-2.5 text-sm ${
                   msg.role === "user"
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
               </div>
               {msg.role === "user" && (
-                <div className="shrink-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center">
-                  <User className="h-4 w-4 text-primary-foreground" />
+                <div className="shrink-0 h-7 w-7 lg:h-8 lg:w-8 rounded-full bg-primary flex items-center justify-center">
+                  <User className="h-3.5 w-3.5 lg:h-4 lg:w-4 text-primary-foreground" />
                 </div>
               )}
             </div>
           ))}
           {loading && (
-            <div className="flex gap-3">
-              <div className="shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                <Bot className="h-4 w-4 text-primary" />
+            <div className="flex gap-2 lg:gap-3">
+              <div className="shrink-0 h-7 w-7 lg:h-8 lg:w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <Bot className="h-3.5 w-3.5 lg:h-4 lg:w-4 text-primary" />
               </div>
-              <div className="bg-muted rounded-2xl px-4 py-2.5">
+              <div className="bg-muted rounded-2xl px-3 lg:px-4 py-2 lg:py-2.5">
                 <div className="flex gap-1">
                   <div className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" />
                   <div className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0.1s]" />
@@ -301,29 +363,31 @@ export default function AIChatPage() {
           <div ref={scrollRef} />
         </CardContent>
       </Card>
-      {/* Input */}
-      <form onSubmit={handleSend} className="mt-3 flex gap-2">
+
+      {/* Input area */}
+      <form onSubmit={handleSend} className="mt-2 lg:mt-3 flex gap-1.5 lg:gap-2">
         <Input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={isListening ? "Ouvindo..." : "Pergunte algo..."}
           disabled={loading}
-          className="flex-1"
+          className={`flex-1 text-base lg:text-sm ${isListening ? "border-red-500 placeholder:text-red-400" : ""}`}
         />
         {speechSupported && (
           <Button
             type="button"
             size="icon"
-            variant="outline"
+            variant={isListening ? "destructive" : "outline"}
             onClick={toggleListening}
             disabled={loading}
-            className={isListening ? "text-red-500 animate-pulse border-red-500" : "text-muted-foreground"}
+            className={`shrink-0 h-10 w-10 ${isListening ? "animate-pulse" : ""}`}
             title={isListening ? "Parar gravação" : "Falar"}
           >
-            <Mic className="h-4 w-4" />
+            {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
         )}
-        <Button type="submit" size="icon" disabled={loading || !input.trim()}>
+        <Button type="submit" size="icon" disabled={loading || !input.trim()} className="shrink-0 h-10 w-10">
           <Send className="h-4 w-4" />
         </Button>
       </form>
