@@ -363,6 +363,60 @@ export default function SchedulePage() {
         </Dialog>
       </div>
 
+      {/* Period Summary */}
+      {(() => {
+        const active = payments.filter((p) => p.status === "pending" || p.status === "overdue");
+        if (active.length === 0) return null;
+        const periods = [
+          { label: "1–10", min: 1, max: 10 },
+          { label: "11–15", min: 11, max: 15 },
+          { label: "16–20", min: 16, max: 20 },
+          { label: "21–31", min: 21, max: 31 },
+        ];
+        const data = periods.map((period) => {
+          const items = active.filter((p) => {
+            const day = parseInt(p.due_date.split("-")[2], 10);
+            return day >= period.min && day <= period.max;
+          });
+          const expenses = items.filter((p) => p.type !== "income");
+          const income = items.filter((p) => p.type === "income");
+          return {
+            ...period,
+            totalExpenses: expenses.reduce((s, p) => s + Number(p.amount_cents), 0),
+            totalIncome: income.reduce((s, p) => s + Number(p.amount_cents), 0),
+            countExpenses: expenses.length,
+            countIncome: income.length,
+          };
+        }).filter((d) => d.countExpenses > 0 || d.countIncome > 0);
+        if (data.length === 0) return null;
+        return (
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+            {data.map((d) => (
+              <Card key={d.label} className="min-w-[140px] flex-shrink-0 flex-1">
+                <CardContent className="py-3 px-3">
+                  <p className="text-xs text-muted-foreground font-medium mb-1.5">Dia {d.label}</p>
+                  {d.totalExpenses > 0 && (
+                    <p className="text-sm font-bold text-red-500">
+                      -{formatCurrency(d.totalExpenses)}
+                    </p>
+                  )}
+                  {d.totalIncome > 0 && (
+                    <p className="text-sm font-bold text-green-500">
+                      +{formatCurrency(d.totalIncome)}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {d.countExpenses > 0 && `${d.countExpenses} conta${d.countExpenses > 1 ? "s" : ""}`}
+                    {d.countExpenses > 0 && d.countIncome > 0 && " · "}
+                    {d.countIncome > 0 && `${d.countIncome} receb.`}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        );
+      })()}
+
       {payments.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
