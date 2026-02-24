@@ -10,6 +10,7 @@ import {
   CalendarClock,
   AlertTriangle,
   DollarSign,
+  Plus,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -59,20 +60,18 @@ export default async function DashboardPage() {
     .reduce((sum, t) => sum + Number(t.amount_cents), 0);
   const balance = income - expense;
 
-  // Fetch pending scheduled payments for current month
-  const { data: pendingPayments } = await supabase
+  // Fetch ALL pending/overdue scheduled payments (not just current month)
+  const { data: allPendingPayments } = await supabase
     .from("scheduled_payments")
     .select("*")
     .eq("user_id", user.id)
-    .eq("status", "pending")
-    .gte("due_date", startOfMonth)
-    .lte("due_date", endOfMonth);
+    .in("status", ["pending", "overdue"]);
 
-  const pendingTotal = (pendingPayments ?? []).reduce(
+  const allPendingTotal = (allPendingPayments ?? []).reduce(
     (sum, p) => sum + Number(p.amount_cents),
     0
   );
-  const projected = balance - pendingTotal;
+  const projected = saldoAtual - allPendingTotal;
 
   // Upcoming payments (next 30 days)
   const d30 = new Date(now.getTime() + 30 * 86400000);
@@ -127,11 +126,11 @@ export default async function DashboardPage() {
                 {formatCurrency(saldoAtual)}
               </p>
             </div>
-            {pendingTotal > 0 && (
+            {allPendingTotal > 0 && (
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">Após pagar pendentes</p>
-                <p className={`text-lg font-semibold ${saldoAtual - pendingTotal >= 0 ? "text-primary" : "text-red-500"}`}>
-                  {formatCurrency(saldoAtual - pendingTotal)}
+                <p className={`text-lg font-semibold ${saldoAtual - allPendingTotal >= 0 ? "text-primary" : "text-red-500"}`}>
+                  {formatCurrency(saldoAtual - allPendingTotal)}
                 </p>
               </div>
             )}
@@ -142,10 +141,35 @@ export default async function DashboardPage() {
               ? `Você gastou ${formatCurrency(expense)} este mês.`
               : "Nenhum gasto registrado este mês."
             }
-            {pendingTotal > 0 && ` Faltam ${formatCurrency(pendingTotal)} em contas pendentes.`}
+            {allPendingTotal > 0 && ` Faltam ${formatCurrency(allPendingTotal)} em contas pendentes.`}
           </p>
         </CardContent>
       </Card>
+
+      {/* Quick action when no transactions yet */}
+      {(!allTransactions || allTransactions.length === 0) && (
+        <Card className="border-green-500/30 bg-green-50 dark:bg-green-950/20">
+          <CardContent className="py-4 px-4">
+            <div className="flex items-start gap-3">
+              <Plus className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                  Comece registrando suas entradas!
+                </p>
+                <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                  Registre seu salário ou receitas para ver o saldo. Contas futuras vão para a Agenda automaticamente.
+                </p>
+                <Link
+                  href="/transactions/new"
+                  className="inline-block mt-2 text-xs font-medium text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/40 px-3 py-1.5 rounded-md hover:bg-green-200 dark:hover:bg-green-900/60 transition-colors"
+                >
+                  + Registrar entrada
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Urgent Payment Alert */}
       {urgentPayments.length > 0 && (
