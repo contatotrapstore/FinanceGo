@@ -2,9 +2,11 @@
 import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
 import { ThemeToggle } from "./theme-toggle";
+import { PaymentReminder } from "../notifications/payment-reminder";
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
+      <PaymentReminder />
       <Sidebar />
       <div className="lg:pl-64">
         <header className="sticky top-0 z-40 flex items-center justify-end h-14 px-4 border-b border-border bg-background/80 backdrop-blur-sm">
