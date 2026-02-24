@@ -196,13 +196,14 @@ export default function AIChatPage() {
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <Bot className="h-12 w-12 mb-3 opacity-50" />
               <p className="text-sm">Olá! Sou o assistente do FinanceGO.</p>
-              <p className="text-xs mt-1">Pergunte sobre seus gastos, projeções ou metas.</p>
+              <p className="text-xs mt-1">Consulte, crie lançamentos e gerencie contas por aqui.</p>
               <div className="mt-4 space-y-2">
                 {[
-                  "Quanto gastei esse mês?",
-                  "Quais categorias mais pesam?",
+                  "Recebi 5000 reais de salário",
+                  "Gastei 300 reais no mercado",
+                  "Tenho conta de 50 reais todo dia 10",
                   "Se pagar tudo, fico com quanto?",
-                  "Quanto falta ganhar pra não ficar negativo?",
+                  "Quais contas vencem essa semana?",
                 ].map((q) => (
                   <button
                     key={q}

@@ -8,6 +8,7 @@ function localDate(d: Date): string {
 }
 
 const tools = [
+  // === READ tools ===
   {
     type: "function" as const,
     function: {
@@ -52,7 +53,62 @@ const tools = [
       },
     },
   },
+  // === WRITE tools ===
+  {
+    type: "function" as const,
+    function: {
+      name: "create_transaction",
+      description: "Cria um lançamento financeiro (entrada ou saída de dinheiro que já aconteceu). Use para registrar gastos realizados, salários recebidos, receitas, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["income", "expense"], description: "Tipo: income = entrada/receita, expense = saída/gasto" },
+          amount: { type: "number", description: "Valor em reais (ex: 300.00, 2000, 49.90)" },
+          description: { type: "string", description: "Descrição do lançamento (ex: 'Salário', 'Almoço restaurante', 'Freelance')" },
+          date: { type: "string", description: "Data no formato YYYY-MM-DD. Se não informado, usa hoje." },
+          payment_method: { type: "string", enum: ["pix", "cash", "card", "transfer", "other"], description: "Método de pagamento. Padrão: pix" },
+        },
+        required: ["type", "amount", "description"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_scheduled_payment",
+      description: "Cria uma conta futura na Agenda (pagamento que ainda vai acontecer). Use para contas mensais, parcelas, assinaturas, boletos futuros, etc.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Nome da conta (ex: 'Aluguel', 'Netflix', 'Parcela carro')" },
+          amount: { type: "number", description: "Valor em reais (ex: 50.00, 1200)" },
+          due_date: { type: "string", description: "Data de vencimento no formato YYYY-MM-DD" },
+          kind: { type: "string", enum: ["credit_card", "loan", "fixed_bill", "subscription", "variable_bill", "other"], description: "Tipo da conta. Padrão: other" },
+        },
+        required: ["title", "amount", "due_date"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "mark_payment_paid",
+      description: "Marca uma conta da Agenda como paga. Cria automaticamente um lançamento de saída. Use quando o usuário disser que pagou uma conta.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Nome da conta para buscar (busca parcial, ex: 'Nubank', 'Luz')" },
+        },
+        required: ["title"],
+      },
+    },
+  },
 ];
+
+async function getWalletId(userId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
+  const { data } = await supabase.from("wallets").select("id").eq("user_id", userId).limit(1);
+  return data?.[0]?.id ?? null;
+}
 
 async function handleToolCall(
   toolName: string,
@@ -60,6 +116,7 @@ async function handleToolCall(
   userId: string,
   supabase: Awaited<ReturnType<typeof createClient>>
 ): Promise<string> {
+  // === READ tools ===
   if (toolName === "get_month_summary") {
     const { year, month } = args;
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -108,7 +165,7 @@ async function handleToolCall(
       .from("scheduled_payments")
       .select("title, amount_cents, due_date, kind, status")
       .eq("user_id", userId)
-      .eq("status", "pending")
+      .in("status", ["pending", "overdue"])
       .gte("due_date", today)
       .lte("due_date", future)
       .order("due_date", { ascending: true });
@@ -154,6 +211,102 @@ async function handleToolCall(
     return JSON.stringify(sorted);
   }
 
+  // === WRITE tools ===
+  if (toolName === "create_transaction") {
+    const walletId = await getWalletId(userId, supabase);
+    if (!walletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+
+    const amountCents = Math.round((args.amount ?? 0) * 100);
+    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido" });
+
+    const date = args.date || localDate(new Date());
+    const { error } = await supabase.from("transactions").insert({
+      user_id: userId,
+      wallet_id: walletId,
+      type: args.type,
+      amount_cents: amountCents,
+      date,
+      description: args.description,
+      payment_method: args.payment_method || "pix",
+    });
+
+    if (error) return JSON.stringify({ erro: error.message });
+
+    const typeLabel = args.type === "income" ? "Entrada" : "Saída";
+    return JSON.stringify({
+      sucesso: true,
+      mensagem: `${typeLabel} de R$ ${args.amount.toFixed(2)} criada: "${args.description}" em ${date}`,
+    });
+  }
+
+  if (toolName === "create_scheduled_payment") {
+    const walletId = await getWalletId(userId, supabase);
+    if (!walletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+
+    const amountCents = Math.round((args.amount ?? 0) * 100);
+    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido" });
+
+    const { error } = await supabase.from("scheduled_payments").insert({
+      user_id: userId,
+      wallet_id: walletId,
+      title: args.title,
+      amount_cents: amountCents,
+      due_date: args.due_date,
+      kind: args.kind || "other",
+    });
+
+    if (error) return JSON.stringify({ erro: error.message });
+
+    return JSON.stringify({
+      sucesso: true,
+      mensagem: `Conta "${args.title}" de R$ ${args.amount.toFixed(2)} criada na Agenda para ${args.due_date}`,
+    });
+  }
+
+  if (toolName === "mark_payment_paid") {
+    const walletId = await getWalletId(userId, supabase);
+    if (!walletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+
+    // Search for the payment by partial title match
+    const { data: payments } = await supabase
+      .from("scheduled_payments")
+      .select("id, title, amount_cents, due_date")
+      .eq("user_id", userId)
+      .in("status", ["pending", "overdue"])
+      .ilike("title", `%${args.title}%`)
+      .limit(1);
+
+    if (!payments || payments.length === 0) {
+      return JSON.stringify({ erro: `Nenhuma conta pendente encontrada com "${args.title}"` });
+    }
+
+    const payment = payments[0];
+
+    // Create transaction
+    const { data: txData, error: txError } = await supabase.from("transactions").insert({
+      user_id: userId,
+      wallet_id: walletId,
+      type: "expense" as const,
+      amount_cents: payment.amount_cents,
+      date: payment.due_date,
+      description: payment.title,
+      payment_method: "other" as const,
+    }).select("id").single();
+
+    if (txError) return JSON.stringify({ erro: txError.message });
+
+    // Mark as paid
+    await supabase
+      .from("scheduled_payments")
+      .update({ status: "paid", paid_transaction_id: txData?.id ?? null })
+      .eq("id", payment.id);
+
+    return JSON.stringify({
+      sucesso: true,
+      mensagem: `"${payment.title}" marcada como paga! Lançamento de R$ ${(payment.amount_cents / 100).toFixed(2)} criado em ${payment.due_date}`,
+    });
+  }
+
   return JSON.stringify({ error: "Função desconhecida" });
 }
 
@@ -189,17 +342,27 @@ export async function POST(request: Request) {
   const monthName = now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
   const systemPrompt = `Você é o assistente financeiro do FinanceGO. Responda em português brasileiro.
-Você tem acesso a funções para consultar os dados financeiros do usuário.
-Use as funções sempre que precisar de dados numéricos atualizados.
+Você tem acesso a funções para CONSULTAR e CRIAR dados financeiros do usuário.
 
 Hoje é ${now.toLocaleDateString("pt-BR")} (${monthName}).
+
+Funções disponíveis:
+- CONSULTAR: resumo do mês, contas próximas, gastos por categoria
+- CRIAR LANÇAMENTO: quando o usuário diz que gastou, recebeu, pagou algo HOJE ou no passado
+- CRIAR CONTA NA AGENDA: quando o usuário diz que tem conta futura, parcela mensal, assinatura
+- MARCAR COMO PAGO: quando o usuário diz que pagou uma conta da agenda
 
 Regras:
 - Sempre cite o período (ex: "em fevereiro/2026")
 - Seja objetivo, com números e próximos passos
 - Não dê conselho financeiro profissional, apenas organização pessoal
 - Use as funções disponíveis para buscar dados antes de responder
-- Quando não tiver dados suficientes, avise`;
+- Quando não tiver dados suficientes, avise
+- Após criar algo, confirme o que foi criado com os valores
+- Se o usuário falar "gastei X em Y", crie como expense com data de hoje
+- Se o usuário falar "recebi X" ou "entrou X", crie como income com data de hoje
+- Se o usuário falar "tenho conta de X todo dia Y", crie como scheduled_payment
+- Valores são em reais (BRL). Ex: "300 reais" = amount: 300`;
 
   try {
     const openaiMessages: any[] = [
@@ -235,9 +398,9 @@ Regras:
     let data = await response.json();
     let assistantMessage = data.choices[0].message;
 
-    // Handle tool calls (up to 3 rounds)
+    // Handle tool calls (up to 5 rounds for complex multi-step actions)
     let rounds = 0;
-    while (assistantMessage.tool_calls && rounds < 3) {
+    while (assistantMessage.tool_calls && rounds < 5) {
       rounds++;
       openaiMessages.push(assistantMessage);
 
