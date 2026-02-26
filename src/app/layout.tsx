@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { PushSubscribe } from "@/components/push-subscribe";
 import "./globals.css";
 
 const inter = Inter({
@@ -62,6 +63,7 @@ export default function RootLayout({
           {children}
           <Toaster />
           <ServiceWorkerRegister />
+          <PushSubscribe />
         </ThemeProvider>
       </body>
     </html>

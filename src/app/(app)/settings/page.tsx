@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { toast } from "sonner";
-import { User, Palette, LogOut, Tag, Plus, Pencil, Trash2 } from "lucide-react";
+import { User, Palette, LogOut, Tag, Plus, Pencil, Trash2, Bell } from "lucide-react";
 import type { Database } from "@/lib/supabase/types";
 
 type CategoryType = Database["public"]["Enums"]["category_type"];
@@ -74,6 +74,11 @@ export default function SettingsPage() {
   const [deleteCatId, setDeleteCatId] = useState("");
   const [deleteCatLoading, setDeleteCatLoading] = useState(false);
 
+  // Notifications
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
   const supabase = createClient();
   const router = useRouter();
 
@@ -99,6 +104,14 @@ export default function SettingsPage() {
           .maybeSingle();
         if (profile) setName(profile.name);
         loadCategories(user.id);
+      }
+
+      // Check push notification support
+      if ("serviceWorker" in navigator && "PushManager" in window) {
+        setPushSupported(true);
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setPushEnabled(!!sub);
       }
     }
     load();
@@ -188,6 +201,75 @@ export default function SettingsPage() {
       loadCategories(userId);
     }
     setDeleteCatLoading(false);
+  }
+
+  function urlBase64ToUint8Array(base64String: string) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  async function togglePush() {
+    if (!pushSupported) return;
+    setPushLoading(true);
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+
+      if (pushEnabled) {
+        // Unsubscribe
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          const endpoint = sub.endpoint;
+          await sub.unsubscribe();
+          await fetch("/api/push/unsubscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint }),
+          });
+        }
+        setPushEnabled(false);
+        toast.success("Notificações desativadas");
+      } else {
+        // Subscribe
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          toast.error("Permissão de notificação negada");
+          setPushLoading(false);
+          return;
+        }
+
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(
+            process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+          ),
+        });
+
+        const json = sub.toJSON();
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            endpoint: json.endpoint,
+            p256dh: json.keys?.p256dh,
+            auth: json.keys?.auth,
+          }),
+        });
+
+        setPushEnabled(true);
+        toast.success("Notificações ativadas!");
+      }
+    } catch {
+      toast.error("Erro ao alterar notificações");
+    }
+
+    setPushLoading(false);
   }
 
   const userCategories = categories.filter((c) => c.user_id === userId);
@@ -352,6 +434,54 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Notifications */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="h-4 w-4" />
+            Notificações
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {pushSupported ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm">Lembretes de contas</span>
+                <p className="text-xs text-muted-foreground">
+                  Receba avisos de contas vencendo e atrasadas
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pushEnabled}
+                onClick={togglePush}
+                disabled={pushLoading}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                  pushEnabled ? "bg-primary" : "bg-muted"
+                } ${pushLoading ? "opacity-50" : ""}`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                    pushEnabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Notificações não suportadas neste navegador.
+            </p>
+          )}
+          {pushEnabled && (
+            <p className="text-xs text-green-600 dark:text-green-400">
+              Você receberá lembretes diários às 8h sobre contas pendentes.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Separator />
       {/* Sign Out */}
       <Button variant="destructive" onClick={handleSignOut} className="w-full">
