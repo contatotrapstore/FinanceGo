@@ -1,11 +1,10 @@
 "use client";
-import Image from "next/image";
 import Link from "next/link";
 import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
 import { ThemeToggle } from "./theme-toggle";
 import { PaymentReminder } from "../notifications/payment-reminder";
-import { Settings } from "lucide-react";
+import { Settings, Wallet } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,7 +15,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-14 px-4 border-b border-border bg-background/80 backdrop-blur-sm">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <Image src="/logo.png" alt="FinanceGO" width={120} height={36} className="h-8 w-auto" priority />
+            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary/10">
+              <Wallet className="h-5 w-5 text-primary" />
+            </div>
+            <span className="text-lg font-bold text-foreground">
+              Finance<span className="text-primary">GO</span>
+            </span>
           </Link>
           <div className="flex items-center gap-1">
             <ThemeToggle />
