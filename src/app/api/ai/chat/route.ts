@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createUntyped } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 type CategoryJoin = { name: string } | null;
@@ -53,6 +54,46 @@ const tools = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_card_summary",
+      description: "Retorna o resumo dos cartões de crédito: limite, fatura atual, disponível. Se card_name for informado, filtra por aquele cartão.",
+      parameters: {
+        type: "object",
+        properties: {
+          card_name: { type: "string", description: "Nome do cartão (opcional, ex: 'Nubank'). Se vazio, retorna todos." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_installments",
+      description: "Retorna as compras parceladas ativas do usuário: descrição, cartão, parcela atual/total, valor mensal.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["active", "all"], description: "Filtro de status. Padrão: active" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_financial_health",
+      description: "Retorna um snapshot completo da saúde financeira: saldo, gastos hoje/mês, cartões, parcelas, contas pendentes, projeção e status geral.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
   // === WRITE tools ===
   {
     type: "function" as const,
@@ -104,11 +145,37 @@ const tools = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_card_purchase",
+      description: "Registra uma compra no cartão de crédito, com opção de parcelamento. Cria lançamento + parcelas futuras na agenda automaticamente.",
+      parameters: {
+        type: "object",
+        properties: {
+          card_name: { type: "string", description: "Nome do cartão (ex: 'Nubank', 'Inter'). Busca por nome parcial." },
+          amount: { type: "number", description: "Valor TOTAL da compra em reais (ex: 600.00)" },
+          description: { type: "string", description: "Descrição da compra (ex: 'Tênis Nike', 'iPhone')" },
+          installments: { type: "number", description: "Número de parcelas (1 a 24). Padrão: 1" },
+          date: { type: "string", description: "Data da compra no formato YYYY-MM-DD. Se não informado, usa hoje." },
+        },
+        required: ["card_name", "amount", "description"],
+      },
+    },
+  },
 ];
 
 async function getWalletId(userId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
   const { data } = await supabase.from("wallets").select("id").eq("user_id", userId).limit(1);
   return data?.[0]?.id ?? null;
+}
+
+function getUntypedDb() {
+  return createUntyped(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
+  );
 }
 
 async function handleToolCall(
@@ -118,10 +185,12 @@ async function handleToolCall(
   supabase: Awaited<ReturnType<typeof createClient>>,
   cachedWalletId: string | null
 ): Promise<string> {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const db = getUntypedDb();
+
   // === READ tools ===
   if (toolName === "get_month_summary") {
     const { year, month } = args;
-    const pad = (n: number) => String(n).padStart(2, "0");
     const startOfMonth = `${year}-${pad(month)}-01`;
     const lastDay = new Date(year, month, 0).getDate();
     const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
@@ -185,7 +254,6 @@ async function handleToolCall(
 
   if (toolName === "get_category_breakdown") {
     const { year, month } = args;
-    const pad = (n: number) => String(n).padStart(2, "0");
     const startOfMonth = `${year}-${pad(month)}-01`;
     const lastDay = new Date(year, month, 0).getDate();
     const endOfMonth = `${year}-${pad(month)}-${pad(lastDay)}`;
@@ -212,6 +280,215 @@ async function handleToolCall(
       }));
 
     return JSON.stringify(sorted);
+  }
+
+  // === NEW: get_card_summary ===
+  if (toolName === "get_card_summary") {
+    const now = new Date();
+    const yr = now.getFullYear();
+    const mo = now.getMonth();
+    const lastDay = new Date(yr, mo + 1, 0).getDate();
+
+    let query = db.from("credit_cards").select("*").eq("user_id", userId).eq("status", "active");
+    if (args.card_name) {
+      query = query.ilike("name", `%${args.card_name}%`);
+    }
+    const { data: cards } = await query.order("name");
+
+    if (!cards || cards.length === 0) {
+      return JSON.stringify({ info: args.card_name ? `Nenhum cartão encontrado com "${args.card_name}"` : "Nenhum cartão cadastrado" });
+    }
+
+    const result = [];
+    for (const card of cards) {
+      const closingDay = card.closing_day || 1;
+      let cycleStart: string;
+      let cycleEnd: string;
+
+      if (now.getDate() <= closingDay) {
+        const prevMonth = mo === 0 ? 11 : mo - 1;
+        const prevYear = mo === 0 ? yr - 1 : yr;
+        cycleStart = `${prevYear}-${pad(prevMonth + 1)}-${pad(Math.min(closingDay + 1, 28))}`;
+        cycleEnd = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay, lastDay))}`;
+      } else {
+        const nextMonth = mo === 11 ? 0 : mo + 1;
+        const nextYear = mo === 11 ? yr + 1 : yr;
+        const nextLastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
+        cycleStart = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay + 1, lastDay))}`;
+        cycleEnd = `${nextYear}-${pad(nextMonth + 1)}-${pad(Math.min(closingDay, nextLastDay))}`;
+      }
+
+      const { data: cardTx } = await db
+        .from("transactions")
+        .select("amount_cents")
+        .eq("user_id", userId)
+        .eq("card_id", card.id)
+        .eq("type", "expense")
+        .gte("date", cycleStart)
+        .lte("date", cycleEnd);
+
+      const used = (cardTx ?? []).reduce((s: number, t: { amount_cents: number }) => s + Number(t.amount_cents), 0);
+      const limit = Number(card.credit_limit_cents);
+      const available = limit - used;
+
+      result.push({
+        cartao: card.name,
+        ultimos_4: card.last_four || "—",
+        limite: `R$ ${(limit / 100).toFixed(2)}`,
+        fatura_atual: `R$ ${(used / 100).toFixed(2)}`,
+        disponivel: `R$ ${(available / 100).toFixed(2)}`,
+        uso_pct: limit > 0 ? `${Math.round((used / limit) * 100)}%` : "—",
+        fecha_dia: card.closing_day,
+        vence_dia: card.payment_day,
+      });
+    }
+
+    return JSON.stringify(result);
+  }
+
+  // === NEW: get_installments ===
+  if (toolName === "get_installments") {
+    const status = args.status || "active";
+    let query = db.from("installments").select("*, credit_cards(name)").eq("user_id", userId);
+    if (status === "active") {
+      query = query.eq("status", "active");
+    }
+    const { data: installments } = await query.order("created_at", { ascending: false });
+
+    if (!installments || installments.length === 0) {
+      return JSON.stringify({ info: "Nenhuma compra parcelada encontrada" });
+    }
+
+    const totalMonthly = installments.reduce((s: number, i: any) => s + Number(i.installment_amount_cents), 0);
+
+    return JSON.stringify({
+      total_parcelas_ativas: installments.length,
+      total_mensal: `R$ ${(totalMonthly / 100).toFixed(2)}`,
+      compras: installments.map((i: any) => ({
+        descricao: i.description,
+        cartao: i.credit_cards?.name || "—",
+        parcela_atual: `${i.paid_installments}/${i.total_installments}`,
+        valor_parcela: `R$ ${(Number(i.installment_amount_cents) / 100).toFixed(2)}`,
+        valor_total: `R$ ${(Number(i.total_amount_cents) / 100).toFixed(2)}`,
+        restante: `R$ ${(Number(i.installment_amount_cents) * (i.total_installments - i.paid_installments) / 100).toFixed(2)}`,
+        status: i.status,
+      })),
+    });
+  }
+
+  // === NEW: get_financial_health ===
+  if (toolName === "get_financial_health") {
+    const now = new Date();
+    const yr = now.getFullYear();
+    const mo = now.getMonth();
+    const today = localDate(now);
+    const startOfMonth = `${yr}-${pad(mo + 1)}-01`;
+    const lastDay = new Date(yr, mo + 1, 0).getDate();
+    const endOfMonth = `${yr}-${pad(mo + 1)}-${pad(lastDay)}`;
+
+    // All transactions for balance
+    const { data: allTx } = await supabase
+      .from("transactions")
+      .select("type, amount_cents, date")
+      .eq("user_id", userId);
+
+    const totalIncome = (allTx ?? []).filter((t) => t.type === "income").reduce((s, t) => s + Number(t.amount_cents), 0);
+    const totalExpense = (allTx ?? []).filter((t) => t.type === "expense").reduce((s, t) => s + Number(t.amount_cents), 0);
+    const saldo = totalIncome - totalExpense;
+
+    // Month transactions
+    const monthTx = (allTx ?? []).filter((t) => t.date >= startOfMonth && t.date <= endOfMonth);
+    const monthIncome = monthTx.filter((t) => t.type === "income").reduce((s, t) => s + Number(t.amount_cents), 0);
+    const monthExpense = monthTx.filter((t) => t.type === "expense").reduce((s, t) => s + Number(t.amount_cents), 0);
+
+    // Today's spending
+    const todayExpense = (allTx ?? []).filter((t) => t.date === today && t.type === "expense").reduce((s, t) => s + Number(t.amount_cents), 0);
+
+    // Pending payments
+    const { data: pending } = await supabase
+      .from("scheduled_payments")
+      .select("amount_cents, type, status")
+      .eq("user_id", userId)
+      .in("status", ["pending", "overdue"]);
+
+    const pendingExp = (pending ?? []).filter((p) => p.type !== "income").reduce((s, p) => s + Number(p.amount_cents), 0);
+    const pendingInc = (pending ?? []).filter((p) => p.type === "income").reduce((s, p) => s + Number(p.amount_cents), 0);
+    const hasOverdue = (pending ?? []).some((p) => p.status === "overdue");
+
+    // Cards
+    const { data: cards } = await db.from("credit_cards").select("*").eq("user_id", userId).eq("status", "active");
+    const cardSummaries = [];
+    let maxCardPct = 0;
+
+    for (const card of (cards ?? [])) {
+      const closingDay = card.closing_day || 1;
+      let cycleStart: string;
+      let cycleEnd: string;
+
+      if (now.getDate() <= closingDay) {
+        const prevMonth = mo === 0 ? 11 : mo - 1;
+        const prevYear = mo === 0 ? yr - 1 : yr;
+        cycleStart = `${prevYear}-${pad(prevMonth + 1)}-${pad(Math.min(closingDay + 1, 28))}`;
+        cycleEnd = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay, lastDay))}`;
+      } else {
+        const nextMonth = mo === 11 ? 0 : mo + 1;
+        const nextYear = mo === 11 ? yr + 1 : yr;
+        const nextLastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
+        cycleStart = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay + 1, lastDay))}`;
+        cycleEnd = `${nextYear}-${pad(nextMonth + 1)}-${pad(Math.min(closingDay, nextLastDay))}`;
+      }
+
+      const { data: cardTx } = await db
+        .from("transactions")
+        .select("amount_cents")
+        .eq("user_id", userId)
+        .eq("card_id", card.id)
+        .eq("type", "expense")
+        .gte("date", cycleStart)
+        .lte("date", cycleEnd);
+
+      const used = (cardTx ?? []).reduce((s: number, t: { amount_cents: number }) => s + Number(t.amount_cents), 0);
+      const limit = Number(card.credit_limit_cents);
+      const pct = limit > 0 ? Math.round((used / limit) * 100) : 0;
+      if (pct > maxCardPct) maxCardPct = pct;
+
+      cardSummaries.push({
+        cartao: card.name,
+        usado: `R$ ${(used / 100).toFixed(2)}`,
+        limite: `R$ ${(limit / 100).toFixed(2)}`,
+        disponivel: `R$ ${((limit - used) / 100).toFixed(2)}`,
+        uso_pct: `${pct}%`,
+      });
+    }
+
+    // Installments
+    const { data: installments } = await db.from("installments").select("installment_amount_cents").eq("user_id", userId).eq("status", "active");
+    const instCount = (installments ?? []).length;
+    const instMonthly = (installments ?? []).reduce((s: number, i: { installment_amount_cents: number }) => s + Number(i.installment_amount_cents), 0);
+
+    // Health status
+    let status: string;
+    if (saldo < 0 || maxCardPct > 80) {
+      status = "alerta";
+    } else if (maxCardPct > 60 || hasOverdue || (saldo - pendingExp + pendingInc) < 0) {
+      status = "atencao";
+    } else {
+      status = "saudavel";
+    }
+
+    return JSON.stringify({
+      saldo_atual: `R$ ${(saldo / 100).toFixed(2)}`,
+      gastos_hoje: `R$ ${(todayExpense / 100).toFixed(2)}`,
+      gastos_mes: `R$ ${(monthExpense / 100).toFixed(2)}`,
+      entradas_mes: `R$ ${(monthIncome / 100).toFixed(2)}`,
+      cartoes: cardSummaries,
+      parcelas_ativas: instCount,
+      parcelas_mensal: `R$ ${(instMonthly / 100).toFixed(2)}`,
+      contas_pendentes: `R$ ${(pendingExp / 100).toFixed(2)}`,
+      recebimentos_pendentes: `R$ ${(pendingInc / 100).toFixed(2)}`,
+      projecao_fim_mes: `R$ ${((saldo - pendingExp + pendingInc) / 100).toFixed(2)}`,
+      status_financeiro: status,
+    });
   }
 
   // === WRITE tools ===
@@ -277,7 +554,6 @@ async function handleToolCall(
       return JSON.stringify({ erro: "Informe pelo menos 2 caracteres do nome da conta" });
     }
 
-    // Search for matching payments (up to 5)
     const { data: payments } = await supabase
       .from("scheduled_payments")
       .select("id, title, amount_cents, due_date, type")
@@ -291,7 +567,6 @@ async function handleToolCall(
       return JSON.stringify({ erro: `Nenhuma conta pendente encontrada com "${args.title}"` });
     }
 
-    // If multiple matches, ask user to choose
     if (payments.length > 1) {
       const options = payments.map((p) => ({
         titulo: p.title,
@@ -308,7 +583,6 @@ async function handleToolCall(
     const payment = payments[0];
     const isIncome = payment.type === "income";
 
-    // Create transaction with correct type
     const { data: txData, error: txError } = await supabase.from("transactions").insert({
       user_id: userId,
       wallet_id: cachedWalletId,
@@ -321,7 +595,6 @@ async function handleToolCall(
 
     if (txError) return JSON.stringify({ erro: txError.message });
 
-    // Mark as paid/received
     await supabase
       .from("scheduled_payments")
       .update({ status: "paid", paid_transaction_id: txData?.id ?? null })
@@ -333,6 +606,119 @@ async function handleToolCall(
       sucesso: true,
       mensagem: `"${payment.title}" marcada como ${actionLabel}! ${txLabel} de R$ ${(payment.amount_cents / 100).toFixed(2)} criada em ${payment.due_date}`,
     });
+  }
+
+  // === NEW: create_card_purchase ===
+  if (toolName === "create_card_purchase") {
+    if (!cachedWalletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+
+    const amountCents = Math.round((args.amount ?? 0) * 100);
+    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido" });
+    if (!args.description || args.description.trim().length === 0) return JSON.stringify({ erro: "Descrição é obrigatória" });
+    if (!args.card_name || args.card_name.trim().length === 0) return JSON.stringify({ erro: "Nome do cartão é obrigatório" });
+
+    const numInstallments = Math.max(1, Math.min(24, args.installments || 1));
+    const date = args.date || localDate(new Date());
+    const desc = args.description.trim();
+
+    // Find card
+    const { data: cards } = await db
+      .from("credit_cards")
+      .select("id, name")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .ilike("name", `%${args.card_name.trim()}%`)
+      .limit(1);
+
+    if (!cards || cards.length === 0) {
+      return JSON.stringify({ erro: `Nenhum cartão encontrado com nome "${args.card_name}". Cadastre um cartão em Configurações.` });
+    }
+
+    const card = cards[0];
+
+    if (numInstallments > 1) {
+      const installmentAmountCents = Math.round(amountCents / numInstallments);
+
+      // Create installment record
+      const { data: inst, error: instErr } = await db
+        .from("installments")
+        .insert({
+          user_id: userId,
+          card_id: card.id,
+          description: desc,
+          total_amount_cents: amountCents,
+          installment_amount_cents: installmentAmountCents,
+          total_installments: numInstallments,
+          paid_installments: 1,
+          start_date: date,
+          status: "active",
+        })
+        .select("id")
+        .single();
+
+      if (instErr || !inst) return JSON.stringify({ erro: "Erro ao criar parcelamento: " + (instErr?.message || "") });
+
+      // Create first transaction
+      await db.from("transactions").insert({
+        user_id: userId,
+        wallet_id: cachedWalletId,
+        type: "expense",
+        amount_cents: installmentAmountCents,
+        date,
+        description: `${desc} (1/${numInstallments})`,
+        payment_method: "card",
+        card_id: card.id,
+        installment_id: inst.id,
+        is_recurring: false,
+      });
+
+      // Create future scheduled payments
+      const scheduledRows = [];
+      const startDate = new Date(date + "T12:00:00");
+      for (let i = 2; i <= numInstallments; i++) {
+        const futureDate = new Date(startDate);
+        futureDate.setMonth(futureDate.getMonth() + (i - 1));
+        const dueDateStr = localDate(futureDate);
+        scheduledRows.push({
+          user_id: userId,
+          wallet_id: cachedWalletId,
+          title: `${desc} (${i}/${numInstallments})`,
+          amount_cents: installmentAmountCents,
+          due_date: dueDateStr,
+          kind: "credit_card",
+          type: "expense",
+          card_id: card.id,
+          installment_id: inst.id,
+        });
+      }
+
+      if (scheduledRows.length > 0) {
+        await db.from("scheduled_payments").insert(scheduledRows);
+      }
+
+      return JSON.stringify({
+        sucesso: true,
+        mensagem: `Compra "${desc}" de R$ ${args.amount.toFixed(2)} no ${card.name} em ${numInstallments}x de R$ ${(installmentAmountCents / 100).toFixed(2)}. 1ª parcela lançada em ${date}, ${numInstallments - 1} parcelas agendadas.`,
+      });
+    } else {
+      // Single purchase on card
+      await db.from("transactions").insert({
+        user_id: userId,
+        wallet_id: cachedWalletId,
+        type: "expense",
+        amount_cents: amountCents,
+        date,
+        description: desc,
+        payment_method: "card",
+        card_id: card.id,
+        is_recurring: false,
+      });
+
+      return JSON.stringify({
+        sucesso: true,
+        mensagem: `Compra "${desc}" de R$ ${args.amount.toFixed(2)} no ${card.name} (1x) lançada em ${date}.`,
+      });
+    }
   }
 
   return JSON.stringify({ error: "Função desconhecida" });
@@ -375,10 +761,11 @@ Você tem acesso a funções para CONSULTAR e CRIAR dados financeiros do usuári
 Hoje é ${now.toLocaleDateString("pt-BR")} (${monthName}).
 
 Funções disponíveis:
-- CONSULTAR: resumo do mês, contas próximas, gastos por categoria
+- CONSULTAR: resumo do mês, contas próximas, gastos por categoria, resumo dos cartões, parcelas ativas, saúde financeira
 - CRIAR LANÇAMENTO: quando o usuário diz que gastou, recebeu, pagou algo HOJE ou no passado
 - CRIAR CONTA NA AGENDA: quando o usuário diz que tem conta futura, parcela mensal, assinatura
 - MARCAR COMO PAGO: quando o usuário diz que pagou uma conta da agenda
+- COMPRA NO CARTÃO: registra compra (com ou sem parcelas) no cartão de crédito
 
 Regras:
 - Sempre cite o período (ex: "em fevereiro/2026")
@@ -391,6 +778,10 @@ Regras:
 - Se o usuário falar "recebi X" ou "entrou X", crie como income com data de hoje
 - Se o usuário falar "tenho conta de X todo dia Y", crie como scheduled_payment com payment_type: "expense"
 - Se o usuário falar "vou receber X", "tenho X pra receber", crie como scheduled_payment com payment_type: "income"
+- Se o usuário falar "comprei X no cartão em Nx", use create_card_purchase com o nome do cartão e parcelas
+- Se o usuário perguntar "quanto de limite?" ou "como está meu cartão?", use get_card_summary
+- Se o usuário perguntar "como estou?" ou "como estão minhas finanças?", use get_financial_health
+- Se o usuário perguntar "minhas parcelas?" ou "quanto devo em parcelas?", use get_installments
 - Valores são em reais (BRL). Ex: "300 reais" = amount: 300`;
 
   try {

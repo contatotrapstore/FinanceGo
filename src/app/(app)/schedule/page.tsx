@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { createClient as createUntyped } from "@supabase/supabase-js";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Check, CalendarClock, Pencil, Trash2, TrendingUp, TrendingDown, Search } from "lucide-react";
+import { Plus, Check, CalendarClock, Pencil, Trash2, TrendingUp, TrendingDown, Search, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import type { Database } from "@/lib/supabase/types";
 
@@ -36,6 +37,13 @@ type ScheduledPayment = {
   kind: string;
   status: string;
   type: "income" | "expense";
+  card_id?: string | null;
+};
+
+type CCard = {
+  id: string;
+  name: string;
+  color: string | null;
 };
 
 const kindLabels: Record<string, string> = {
@@ -83,8 +91,14 @@ export default function SchedulePage() {
   // Filter state
   const [filterStatus, setFilterStatus] = useState<string>("active");
   const [searchText, setSearchText] = useState("");
+  const [filterCardId, setFilterCardId] = useState<string>("all");
+  const [cards, setCards] = useState<CCard[]>([]);
 
   const supabase = createClient();
+  const db = createUntyped(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  );
 
   const loadPayments = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -124,6 +138,14 @@ export default function SchedulePage() {
       if (!user) return;
       const { data: wallets } = await supabase.from("wallets").select("id").eq("user_id", user.id).limit(1);
       if (wallets?.[0]) setWalletId(wallets[0].id);
+      // Load credit cards for filter
+      const { data: userCards } = await db
+        .from("credit_cards")
+        .select("id, name, color")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("name");
+      if (userCards) setCards(userCards as CCard[]);
       loadPayments();
     }
     init();
@@ -430,7 +452,7 @@ export default function SchedulePage() {
       {payments.length > 0 && (
         <Card>
           <CardContent className="py-3 px-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
                 <Label className="text-xs">Status</Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -444,6 +466,30 @@ export default function SchedulePage() {
                   </SelectContent>
                 </Select>
               </div>
+              {cards.length > 0 && (
+                <div>
+                  <Label className="text-xs">Cartão</Label>
+                  <Select value={filterCardId} onValueChange={setFilterCardId}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {cards.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="inline-block h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: c.color || "#7C3AED" }}
+                            />
+                            {c.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label className="text-xs">Busca</Label>
                 <div className="relative">
@@ -465,11 +511,19 @@ export default function SchedulePage() {
         const filteredPayments = payments.filter((p) => {
           if (filterStatus === "active" && p.status !== "pending" && p.status !== "overdue") return false;
           if (filterStatus === "paid" && p.status !== "paid") return false;
+          if (filterCardId !== "all" && p.card_id !== filterCardId) return false;
           if (searchText.trim()) {
             return p.title.toLowerCase().includes(searchText.toLowerCase());
           }
           return true;
         });
+
+        // Card invoice subtotal when filtered by card
+        const cardSubtotal = filterCardId !== "all"
+          ? filteredPayments.filter((p) => p.status === "pending" || p.status === "overdue")
+              .reduce((s, p) => s + Number(p.amount_cents), 0)
+          : 0;
+        const filteredCardName = filterCardId !== "all" ? cards.find((c) => c.id === filterCardId)?.name : null;
 
         if (payments.length === 0) return (
           <Card>
@@ -485,7 +539,7 @@ export default function SchedulePage() {
             <CardContent className="py-6 text-center text-muted-foreground">
               <p className="text-sm">Nenhum resultado com esses filtros.</p>
               <button
-                onClick={() => { setFilterStatus("all"); setSearchText(""); }}
+                onClick={() => { setFilterStatus("all"); setSearchText(""); setFilterCardId("all"); }}
                 className="text-primary hover:underline text-sm mt-2"
               >
                 Limpar filtros
@@ -496,6 +550,24 @@ export default function SchedulePage() {
 
         return (
         <div className="space-y-2">
+          {/* Card invoice subtotal */}
+          {filteredCardName && cardSubtotal > 0 && (
+            <Card className="border-violet-500/30 bg-violet-50 dark:bg-violet-950/20">
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-violet-500" />
+                    <span className="text-sm font-medium text-violet-800 dark:text-violet-200">
+                      Fatura {filteredCardName}
+                    </span>
+                  </div>
+                  <span className="text-sm font-bold text-violet-700 dark:text-violet-300">
+                    {formatCurrency(cardSubtotal)}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {filteredPayments.map((p) => {
             const isIncome = p.type === "income";
             const isActive = p.status === "pending" || p.status === "overdue";

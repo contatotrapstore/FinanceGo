@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { createClient as createUntyped } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CalendarClock } from "lucide-react";
+import { CalendarClock, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import type { Database } from "@/lib/supabase/types";
 
@@ -25,6 +26,14 @@ type Category = {
   name: string;
   type: string;
   color: string | null;
+};
+
+type CCard = {
+  id: string;
+  name: string;
+  last_four: string | null;
+  color: string | null;
+  status: string;
 };
 
 function todayStr() {
@@ -44,9 +53,16 @@ export default function NewTransactionPage() {
   const [userId, setUserId] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringRule, setRecurringRule] = useState("monthly");
+  const [cards, setCards] = useState<CCard[]>([]);
+  const [cardId, setCardId] = useState("");
+  const [installments, setInstallments] = useState(1);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const db = useMemo(() => createUntyped(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  ), []);
 
   // Detect if selected date is in the future → will create scheduled payment
   const isFutureDate = useMemo(() => {
@@ -73,6 +89,15 @@ export default function NewTransactionPage() {
         .eq("user_id", user.id)
         .limit(1);
       if (wallets?.[0]) setWalletId(wallets[0].id);
+
+      // Load credit cards
+      const { data: userCards } = await db
+        .from("credit_cards")
+        .select("id, name, last_four, color, status")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("name");
+      if (userCards) setCards(userCards as CCard[]);
     }
     load();
   }, []);
@@ -100,6 +125,9 @@ export default function NewTransactionPage() {
       return;
     }
 
+    const selectedCardId = paymentMethod === "card" && cardId ? cardId : null;
+    const numInstallments = selectedCardId && type === "expense" ? installments : 1;
+
     if (isFutureDate) {
       // Future date → create as scheduled payment in Agenda
       const { error } = await supabase.from("scheduled_payments").insert({
@@ -121,9 +149,94 @@ export default function NewTransactionPage() {
       toast.success(type === "income" ? "Recebimento agendado!" : "Conta futura criada na Agenda!");
       router.push("/schedule");
       router.refresh();
+    } else if (numInstallments > 1) {
+      // Card purchase with installments
+      const installmentAmountCents = Math.round(amountCents / numInstallments);
+      const desc = description || "Sem descrição";
+
+      // 1. Create installment record
+      const { data: inst, error: instErr } = await db
+        .from("installments")
+        .insert({
+          user_id: userId,
+          card_id: selectedCardId,
+          description: desc,
+          total_amount_cents: amountCents,
+          installment_amount_cents: installmentAmountCents,
+          total_installments: numInstallments,
+          paid_installments: 1,
+          start_date: date,
+          status: "active",
+        })
+        .select("id")
+        .single();
+
+      if (instErr || !inst) {
+        toast.error("Erro ao criar parcelamento: " + (instErr?.message || ""));
+        setLoading(false);
+        return;
+      }
+
+      // 2. Create first transaction (current month)
+      const { error: txErr } = await db
+        .from("transactions")
+        .insert({
+          user_id: userId,
+          wallet_id: walletId,
+          type: "expense",
+          amount_cents: installmentAmountCents,
+          date,
+          description: `${desc} (1/${numInstallments})`,
+          category_id: categoryId || null,
+          payment_method: "card",
+          card_id: selectedCardId,
+          installment_id: inst.id,
+          is_recurring: false,
+        });
+
+      if (txErr) {
+        toast.error("Erro ao salvar lançamento: " + txErr.message);
+        setLoading(false);
+        return;
+      }
+
+      // 3. Create N-1 scheduled payments for future months
+      const scheduledRows = [];
+      const startDate = new Date(date + "T12:00:00");
+      for (let i = 2; i <= numInstallments; i++) {
+        const futureDate = new Date(startDate);
+        futureDate.setMonth(futureDate.getMonth() + (i - 1));
+        const dueDateStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
+        scheduledRows.push({
+          user_id: userId,
+          wallet_id: walletId,
+          title: `${desc} (${i}/${numInstallments})`,
+          amount_cents: installmentAmountCents,
+          due_date: dueDateStr,
+          kind: "credit_card",
+          type: "expense",
+          card_id: selectedCardId,
+          installment_id: inst.id,
+        });
+      }
+
+      if (scheduledRows.length > 0) {
+        const { error: schErr } = await db
+          .from("scheduled_payments")
+          .insert(scheduledRows);
+        if (schErr) {
+          toast.error("Erro ao criar parcelas futuras: " + schErr.message);
+          setLoading(false);
+          return;
+        }
+      }
+
+      toast.success(`Compra parcelada em ${numInstallments}x salva!`);
+      router.push("/transactions");
+      router.refresh();
     } else {
-      // Today or past → create as normal transaction
-      const { error } = await supabase.from("transactions").insert({
+      // Normal transaction (single or 1x card)
+      const insertData: Record<string, unknown> = {
         user_id: userId,
         wallet_id: walletId,
         type,
@@ -134,7 +247,12 @@ export default function NewTransactionPage() {
         payment_method: paymentMethod,
         is_recurring: isRecurring,
         recurring_rule: isRecurring ? recurringRule : null,
-      });
+      };
+      if (selectedCardId) {
+        insertData.card_id = selectedCardId;
+      }
+
+      const { error } = await db.from("transactions").insert(insertData);
 
       if (error) {
         toast.error("Erro ao salvar: " + error.message);
@@ -239,6 +357,72 @@ export default function NewTransactionPage() {
                     <SelectItem value="other">Outro</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {/* Card Selector - when payment method is card */}
+            {!isFutureDate && paymentMethod === "card" && cards.length > 0 && (
+              <div className="space-y-2">
+                <Label>Cartão</Label>
+                <Select value={cardId} onValueChange={setCardId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o cartão..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cards.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="inline-block h-3 w-3 rounded-full"
+                            style={{ backgroundColor: c.color || "#7C3AED" }}
+                          />
+                          {c.name}
+                          {c.last_four && <span className="text-muted-foreground">•••• {c.last_four}</span>}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Installments - when card is selected and type is expense */}
+            {!isFutureDate && paymentMethod === "card" && cardId && type === "expense" && (
+              <div className="space-y-2">
+                <Label>Parcelas</Label>
+                <Select value={String(installments)} onValueChange={(v) => setInstallments(Number(v))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}x {amount ? `de R$ ${(parseFloat(amount) / n).toFixed(2)}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {installments > 1 && amount && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800">
+                    <CreditCard className="h-4 w-4 text-violet-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-violet-700 dark:text-violet-300">
+                      Será criado <strong>1 lançamento</strong> para este mês e{" "}
+                      <strong>{installments - 1} agendamentos</strong> futuros de{" "}
+                      R$ {(parseFloat(amount) / installments).toFixed(2)}/mês.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* No cards warning */}
+            {!isFutureDate && paymentMethod === "card" && cards.length === 0 && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <CreditCard className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Nenhum cartão cadastrado.{" "}
+                  <a href="/settings" className="underline font-medium">Cadastre um cartão</a> em Configurações.
+                </p>
               </div>
             )}
 

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createUntyped } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { formatCurrency, formatMonthYear } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,9 @@ import {
   DollarSign,
   Plus,
   Activity,
+  CreditCard,
+  ShoppingBag,
+  HeartPulse,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -21,6 +25,17 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth");
+
+  const db = createUntyped(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
+  );
+  // Set auth for RLS
+  db.auth.setSession({
+    access_token: (await supabase.auth.getSession()).data.session?.access_token ?? "",
+    refresh_token: (await supabase.auth.getSession()).data.session?.refresh_token ?? "",
+  });
 
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -60,6 +75,15 @@ export default async function DashboardPage() {
     .filter((t) => t.type === "expense")
     .reduce((sum, t) => sum + Number(t.amount_cents), 0);
   const balance = income - expense;
+
+  // Today's spending
+  const { data: todayTx } = await supabase
+    .from("transactions")
+    .select("type, amount_cents")
+    .eq("user_id", user.id)
+    .eq("date", today)
+    .eq("type", "expense");
+  const todaySpending = (todayTx ?? []).reduce((sum, t) => sum + Number(t.amount_cents), 0);
 
   // Fetch PREVIOUS month transactions for comparison
   const prevMo = mo === 0 ? 11 : mo - 1;
@@ -109,7 +133,6 @@ export default async function DashboardPage() {
   const pendingIncome = (allPendingPayments ?? [])
     .filter((p) => p.type === "income")
     .reduce((sum, p) => sum + Number(p.amount_cents), 0);
-  const allPendingTotal = pendingExpenses;
   const projected = saldoAtual - pendingExpenses + pendingIncome;
 
   // Upcoming payments (next 30 days)
@@ -140,7 +163,128 @@ export default async function DashboardPage() {
     .order("date", { ascending: false })
     .limit(5);
 
-  const cards = [
+  // ====== CREDIT CARDS ======
+  const { data: creditCards } = await db
+    .from("credit_cards")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("name");
+
+  // For each card, compute current billing cycle usage
+  type CardWithUsage = {
+    id: string;
+    name: string;
+    last_four: string | null;
+    color: string;
+    credit_limit_cents: number;
+    closing_day: number;
+    payment_day: number;
+    used_cents: number;
+  };
+
+  const cardsWithUsage: CardWithUsage[] = [];
+  for (const card of (creditCards ?? [])) {
+    // Billing cycle: closing_day of previous month → closing_day of current month
+    const closingDay = card.closing_day || 1;
+    let cycleStart: string;
+    let cycleEnd: string;
+
+    if (now.getDate() <= closingDay) {
+      // We're before closing: cycle is from prev month's closing_day+1 to this month's closing_day
+      const prevMonth = mo === 0 ? 11 : mo - 1;
+      const prevYear = mo === 0 ? yr - 1 : yr;
+      cycleStart = `${prevYear}-${pad(prevMonth + 1)}-${pad(Math.min(closingDay + 1, 28))}`;
+      cycleEnd = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay, lastDay))}`;
+    } else {
+      // We're after closing: cycle is from this month's closing_day+1 to next month's closing_day
+      const nextMonth = mo === 11 ? 0 : mo + 1;
+      const nextYear = mo === 11 ? yr + 1 : yr;
+      const nextLastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
+      cycleStart = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay + 1, lastDay))}`;
+      cycleEnd = `${nextYear}-${pad(nextMonth + 1)}-${pad(Math.min(closingDay, nextLastDay))}`;
+    }
+
+    // Fetch transactions for this card in current billing cycle
+    const { data: cardTx } = await db
+      .from("transactions")
+      .select("amount_cents")
+      .eq("user_id", user.id)
+      .eq("card_id", card.id)
+      .eq("type", "expense")
+      .gte("date", cycleStart)
+      .lte("date", cycleEnd);
+
+    // Also include scheduled payments for this card in the billing cycle
+    const { data: cardSch } = await db
+      .from("scheduled_payments")
+      .select("amount_cents")
+      .eq("user_id", user.id)
+      .eq("card_id", card.id)
+      .in("status", ["pending", "overdue"])
+      .gte("due_date", cycleStart)
+      .lte("due_date", cycleEnd);
+
+    const usedTx = (cardTx ?? []).reduce((sum: number, t: { amount_cents: number }) => sum + Number(t.amount_cents), 0);
+    const usedSch = (cardSch ?? []).reduce((sum: number, t: { amount_cents: number }) => sum + Number(t.amount_cents), 0);
+
+    cardsWithUsage.push({
+      id: card.id,
+      name: card.name,
+      last_four: card.last_four,
+      color: card.color || "#7C3AED",
+      credit_limit_cents: Number(card.credit_limit_cents),
+      closing_day: card.closing_day,
+      payment_day: card.payment_day,
+      used_cents: usedTx + usedSch,
+    });
+  }
+
+  const totalCardUsed = cardsWithUsage.reduce((sum, c) => sum + c.used_cents, 0);
+  const totalCardLimit = cardsWithUsage.reduce((sum, c) => sum + c.credit_limit_cents, 0);
+
+  // ====== INSTALLMENTS ======
+  const { data: activeInstallments } = await db
+    .from("installments")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  const installmentCount = (activeInstallments ?? []).length;
+  const installmentMonthly = (activeInstallments ?? []).reduce(
+    (sum: number, i: { installment_amount_cents: number }) => sum + Number(i.installment_amount_cents), 0
+  );
+
+  // ====== FINANCIAL HEALTH ======
+  const maxCardPct = cardsWithUsage.length > 0
+    ? Math.max(...cardsWithUsage.map((c) => c.credit_limit_cents > 0 ? (c.used_cents / c.credit_limit_cents) * 100 : 0))
+    : 0;
+  const hasOverdue = (allPendingPayments ?? []).some((p) => p.status === "overdue");
+
+  let healthStatus: "saudavel" | "atencao" | "alerta";
+  let healthLabel: string;
+  let healthColor: string;
+  let healthBg: string;
+
+  if (saldoAtual < 0 || maxCardPct > 80) {
+    healthStatus = "alerta";
+    healthLabel = "Alerta";
+    healthColor = "text-red-600 dark:text-red-400";
+    healthBg = "bg-red-100 dark:bg-red-950/40";
+  } else if (maxCardPct > 60 || hasOverdue || projected < 0) {
+    healthStatus = "atencao";
+    healthLabel = "Atenção";
+    healthColor = "text-amber-600 dark:text-amber-400";
+    healthBg = "bg-amber-100 dark:bg-amber-950/40";
+  } else {
+    healthStatus = "saudavel";
+    healthLabel = "Saudável";
+    healthColor = "text-green-600 dark:text-green-400";
+    healthBg = "bg-green-100 dark:bg-green-950/40";
+  }
+
+  const summaryCards = [
     { title: "Entradas", value: income, icon: TrendingUp, color: "text-green-500" },
     { title: "Saídas", value: expense, icon: TrendingDown, color: "text-red-500" },
     { title: "Saldo do Mês", value: balance, icon: Wallet, color: balance >= 0 ? "text-green-500" : "text-red-500" },
@@ -149,9 +293,24 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{greeting}{userName ? `, ${userName}` : ""}!</h1>
-        <p className="text-muted-foreground text-sm capitalize">{formatMonthYear(now)} · {saldoAtual >= 0 ? "Finanças no azul" : "Atenção ao saldo"}</p>
+      {/* Header with greeting + health badge + today's spending */}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold">{greeting}{userName ? `, ${userName}` : ""}!</h1>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${healthColor} ${healthBg}`}>
+              <HeartPulse className="h-3 w-3" />
+              {healthLabel}
+            </span>
+          </div>
+          <p className="text-muted-foreground text-sm capitalize">{formatMonthYear(now)}</p>
+        </div>
+        {todaySpending > 0 && (
+          <div className="text-right shrink-0">
+            <p className="text-xs text-muted-foreground">Hoje</p>
+            <p className="text-sm font-bold text-red-500">-{formatCurrency(todaySpending)}</p>
+          </div>
+        )}
       </div>
 
       {/* Saldo Atual - Destaque */}
@@ -191,9 +350,110 @@ export default async function DashboardPage() {
             {expense > 0 ? "." : "."}
             {pendingExpenses > 0 && ` Faltam ${formatCurrency(pendingExpenses)} em contas a pagar.`}
             {pendingIncome > 0 && ` ${formatCurrency(pendingIncome)} a receber.`}
+            {totalCardUsed > 0 && ` Faturas: ${formatCurrency(totalCardUsed)}.`}
+            {installmentMonthly > 0 && ` Parcelas: ${formatCurrency(installmentMonthly)}/mês.`}
           </p>
         </CardContent>
       </Card>
+
+      {/* Credit Cards Section */}
+      {cardsWithUsage.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Cartões de Crédito</h2>
+            {totalCardLimit > 0 && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                {formatCurrency(totalCardLimit - totalCardUsed)} disponível
+              </span>
+            )}
+          </div>
+          <div className="grid gap-2">
+            {cardsWithUsage.map((card) => {
+              const pct = card.credit_limit_cents > 0
+                ? Math.round((card.used_cents / card.credit_limit_cents) * 100)
+                : 0;
+              const available = card.credit_limit_cents - card.used_cents;
+              const barColor = pct > 80 ? "bg-red-500" : pct > 60 ? "bg-amber-500" : "bg-green-500";
+
+              return (
+                <Card key={card.id}>
+                  <CardContent className="pt-3 pb-3 px-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-block h-3 w-3 rounded-full shrink-0"
+                          style={{ backgroundColor: card.color }}
+                        />
+                        <span className="text-sm font-medium">{card.name}</span>
+                        {card.last_four && (
+                          <span className="text-xs text-muted-foreground">•••• {card.last_four}</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        Fecha dia {card.closing_day} · Vence dia {card.payment_day}
+                      </span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2 mb-1.5">
+                      <div
+                        className={`h-2 rounded-full transition-all ${barColor}`}
+                        style={{ width: `${Math.min(pct, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">
+                        {formatCurrency(card.used_cents)} de {formatCurrency(card.credit_limit_cents)}
+                      </span>
+                      <span className={available >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-500 font-medium"}>
+                        {available >= 0 ? `${formatCurrency(available)} disponível` : `${formatCurrency(Math.abs(available))} excedido`}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Active Installments */}
+      {installmentCount > 0 && (
+        <Card>
+          <CardContent className="pt-3 pb-3 px-4">
+            <div className="flex items-center gap-2 mb-2">
+              <ShoppingBag className="h-4 w-4 text-violet-500" />
+              <span className="text-sm font-medium">Parcelas Ativas</span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {installmentCount} {installmentCount === 1 ? "compra" : "compras"} · {formatCurrency(installmentMonthly)}/mês
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {(activeInstallments ?? []).slice(0, 5).map((inst: {
+                id: string;
+                description: string;
+                paid_installments: number;
+                total_installments: number;
+                installment_amount_cents: number;
+              }) => (
+                <div key={inst.id} className="flex items-center justify-between text-xs">
+                  <span className="truncate flex-1 text-foreground">
+                    {inst.description}
+                    <span className="text-muted-foreground ml-1">
+                      {inst.paid_installments}/{inst.total_installments}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-muted-foreground font-medium">
+                    {formatCurrency(Number(inst.installment_amount_cents))}/mês
+                  </span>
+                </div>
+              ))}
+              {installmentCount > 5 && (
+                <p className="text-xs text-muted-foreground">+{installmentCount - 5} mais...</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Spending Pace Card */}
       {prevExpense > 0 && expense > 0 && (
@@ -302,7 +562,7 @@ export default async function DashboardPage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
-        {cards.map((card) => (
+        {summaryCards.map((card) => (
           <Card key={card.title}>
             <CardContent className="pt-3 pb-2 px-3 lg:pt-4 lg:pb-3 lg:px-4">
               <div className="flex items-center gap-1.5 mb-0.5">

@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { toast } from "sonner";
-import { User, Palette, LogOut, Tag, Plus, Pencil, Trash2, Bell } from "lucide-react";
+import { User, Palette, LogOut, Tag, Plus, Pencil, Trash2, Bell, CreditCard } from "lucide-react";
+import { createClient as createUntyped } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 
 type CategoryType = Database["public"]["Enums"]["category_type"];
@@ -35,6 +36,23 @@ type Category = {
   type: string;
   color: string | null;
 };
+
+type CCard = {
+  id: string;
+  name: string;
+  bank_name: string | null;
+  last_four: string | null;
+  credit_limit_cents: number;
+  closing_day: number;
+  payment_day: number;
+  color: string;
+  status: string;
+};
+
+const cardColors = [
+  "#7C3AED", "#8B5CF6", "#6366F1", "#3B82F6", "#0EA5E9",
+  "#10B981", "#F59E0B", "#EF4444", "#EC4899", "#1F2937",
+];
 
 const typeLabels: Record<string, string> = {
   income: "Entrada",
@@ -74,12 +92,42 @@ export default function SettingsPage() {
   const [deleteCatId, setDeleteCatId] = useState("");
   const [deleteCatLoading, setDeleteCatLoading] = useState(false);
 
+  // Credit cards
+  const [cards, setCards] = useState<CCard[]>([]);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardName, setCardName] = useState("");
+  const [cardBank, setCardBank] = useState("");
+  const [cardLast4, setCardLast4] = useState("");
+  const [cardLimit, setCardLimit] = useState("");
+  const [cardClosing, setCardClosing] = useState("1");
+  const [cardPayment, setCardPayment] = useState("10");
+  const [cardColor, setCardColor] = useState("#7C3AED");
+  const [cardLoading, setCardLoading] = useState(false);
+  const [editCardOpen, setEditCardOpen] = useState(false);
+  const [editCardId, setEditCardId] = useState("");
+  const [editCardName, setEditCardName] = useState("");
+  const [editCardBank, setEditCardBank] = useState("");
+  const [editCardLast4, setEditCardLast4] = useState("");
+  const [editCardLimit, setEditCardLimit] = useState("");
+  const [editCardClosing, setEditCardClosing] = useState("1");
+  const [editCardPayment, setEditCardPayment] = useState("10");
+  const [editCardColor, setEditCardColor] = useState("#7C3AED");
+  const [editCardLoading, setEditCardLoading] = useState(false);
+  const [deleteCardOpen, setDeleteCardOpen] = useState(false);
+  const [deleteCardId, setDeleteCardId] = useState("");
+  const [deleteCardLoading, setDeleteCardLoading] = useState(false);
+
   // Notifications
   const [pushSupported, setPushSupported] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
 
   const supabase = createClient();
+  const db = createUntyped(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
+  );
   const router = useRouter();
 
   const loadCategories = useCallback(async (uid: string) => {
@@ -89,6 +137,11 @@ export default function SettingsPage() {
       .or(`user_id.eq.${uid},user_id.is.null`)
       .order("name");
     if (data) setCategories(data);
+  }, []);
+
+  const loadCards = useCallback(async (uid: string) => {
+    const { data } = await db.from("credit_cards").select("*").eq("user_id", uid).eq("status", "active").order("name");
+    if (data) setCards(data as CCard[]);
   }, []);
 
   useEffect(() => {
@@ -104,6 +157,7 @@ export default function SettingsPage() {
           .maybeSingle();
         if (profile) setName(profile.name);
         loadCategories(user.id);
+        loadCards(user.id);
       }
 
       // Check push notification support
@@ -115,7 +169,7 @@ export default function SettingsPage() {
       }
     }
     load();
-  }, [loadCategories]);
+  }, [loadCategories, loadCards]);
 
   async function handleSave() {
     setLoading(true);
@@ -201,6 +255,52 @@ export default function SettingsPage() {
       loadCategories(userId);
     }
     setDeleteCatLoading(false);
+  }
+
+  async function handleCreateCard(e: React.FormEvent) {
+    e.preventDefault();
+    setCardLoading(true);
+    const limitCents = Math.round(parseFloat(cardLimit) * 100);
+    if (isNaN(limitCents) || limitCents <= 0) { toast.error("Limite inválido"); setCardLoading(false); return; }
+    const { error } = await db.from("credit_cards").insert({
+      user_id: userId, name: cardName, bank_name: cardBank || null, last_four: cardLast4 || null,
+      credit_limit_cents: limitCents, closing_day: parseInt(cardClosing), payment_day: parseInt(cardPayment), color: cardColor,
+    });
+    if (error) { toast.error("Erro: " + error.message); }
+    else {
+      toast.success("Cartão adicionado!");
+      setCardOpen(false); setCardName(""); setCardBank(""); setCardLast4(""); setCardLimit(""); setCardClosing("1"); setCardPayment("10"); setCardColor("#7C3AED");
+      loadCards(userId);
+    }
+    setCardLoading(false);
+  }
+
+  function openEditCard(c: CCard) {
+    setEditCardId(c.id); setEditCardName(c.name); setEditCardBank(c.bank_name ?? ""); setEditCardLast4(c.last_four ?? "");
+    setEditCardLimit((c.credit_limit_cents / 100).toFixed(2)); setEditCardClosing(String(c.closing_day)); setEditCardPayment(String(c.payment_day)); setEditCardColor(c.color);
+    setEditCardOpen(true);
+  }
+
+  async function handleEditCard(e: React.FormEvent) {
+    e.preventDefault();
+    setEditCardLoading(true);
+    const limitCents = Math.round(parseFloat(editCardLimit) * 100);
+    if (isNaN(limitCents) || limitCents <= 0) { toast.error("Limite inválido"); setEditCardLoading(false); return; }
+    const { error } = await db.from("credit_cards").update({
+      name: editCardName, bank_name: editCardBank || null, last_four: editCardLast4 || null,
+      credit_limit_cents: limitCents, closing_day: parseInt(editCardClosing), payment_day: parseInt(editCardPayment), color: editCardColor,
+    }).eq("id", editCardId);
+    if (error) { toast.error("Erro: " + error.message); }
+    else { toast.success("Cartão atualizado!"); setEditCardOpen(false); loadCards(userId); }
+    setEditCardLoading(false);
+  }
+
+  async function handleDeleteCard() {
+    setDeleteCardLoading(true);
+    const { error } = await db.from("credit_cards").update({ status: "inactive" }).eq("id", deleteCardId);
+    if (error) { toast.error("Erro: " + error.message); }
+    else { toast.success("Cartão removido!"); setDeleteCardOpen(false); loadCards(userId); }
+    setDeleteCardLoading(false);
   }
 
   function urlBase64ToUint8Array(base64String: string) {
@@ -419,6 +519,92 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Credit Cards */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CreditCard className="h-4 w-4" />
+              Meus Cartões
+            </CardTitle>
+            <Dialog open={cardOpen} onOpenChange={setCardOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Novo</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Adicionar cartão</DialogTitle></DialogHeader>
+                <form onSubmit={handleCreateCard} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>Nome do cartão</Label>
+                    <Input value={cardName} onChange={(e) => setCardName(e.target.value)} placeholder="Ex: Nubank, Inter..." required />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label>Banco</Label>
+                      <Input value={cardBank} onChange={(e) => setCardBank(e.target.value)} placeholder="Nu Pagamentos" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Últimos 4 dígitos</Label>
+                      <Input value={cardLast4} onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" maxLength={4} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Limite (R$)</Label>
+                    <Input type="number" step="0.01" min="0.01" value={cardLimit} onChange={(e) => setCardLimit(e.target.value)} placeholder="5000.00" required inputMode="decimal" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label>Dia fechamento</Label>
+                      <Input type="number" min="1" max="31" value={cardClosing} onChange={(e) => setCardClosing(e.target.value)} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Dia vencimento</Label>
+                      <Input type="number" min="1" max="31" value={cardPayment} onChange={(e) => setCardPayment(e.target.value)} required />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cor</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      {cardColors.map((c) => (
+                        <button key={c} type="button" className={`w-7 h-7 rounded-full border-2 ${cardColor === c ? "border-foreground" : "border-transparent"}`} style={{ backgroundColor: c }} onClick={() => setCardColor(c)} />
+                      ))}
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full" disabled={cardLoading}>{cardLoading ? "Salvando..." : "Adicionar"}</Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {cards.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Nenhum cartão cadastrado.</p>
+          ) : (
+            <div className="space-y-2">
+              {cards.map((c) => (
+                <div key={c.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-7 rounded-md flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: c.color }}>
+                      {c.last_four || "****"}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{c.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Limite: R$ {(c.credit_limit_cents / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} · Fecha dia {c.closing_day} · Vence dia {c.payment_day}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => openEditCard(c)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-destructive hover:text-destructive" onClick={() => { setDeleteCardId(c.id); setDeleteCardOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Theme */}
       <Card>
         <CardHeader>
@@ -533,6 +719,52 @@ export default function SettingsPage() {
               {editCatLoading ? "Salvando..." : "Salvar"}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Card Dialog */}
+      <Dialog open={editCardOpen} onOpenChange={setEditCardOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar cartão</DialogTitle></DialogHeader>
+          <form onSubmit={handleEditCard} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input value={editCardName} onChange={(e) => setEditCardName(e.target.value)} required />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5"><Label>Banco</Label><Input value={editCardBank} onChange={(e) => setEditCardBank(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Últimos 4</Label><Input value={editCardLast4} onChange={(e) => setEditCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} maxLength={4} /></div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Limite (R$)</Label>
+              <Input type="number" step="0.01" min="0.01" value={editCardLimit} onChange={(e) => setEditCardLimit(e.target.value)} required inputMode="decimal" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5"><Label>Dia fechamento</Label><Input type="number" min="1" max="31" value={editCardClosing} onChange={(e) => setEditCardClosing(e.target.value)} required /></div>
+              <div className="space-y-1.5"><Label>Dia vencimento</Label><Input type="number" min="1" max="31" value={editCardPayment} onChange={(e) => setEditCardPayment(e.target.value)} required /></div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cor</Label>
+              <div className="flex gap-2 flex-wrap">
+                {cardColors.map((c) => (
+                  <button key={c} type="button" className={`w-7 h-7 rounded-full border-2 ${editCardColor === c ? "border-foreground" : "border-transparent"}`} style={{ backgroundColor: c }} onClick={() => setEditCardColor(c)} />
+                ))}
+              </div>
+            </div>
+            <Button type="submit" className="w-full" disabled={editCardLoading}>{editCardLoading ? "Salvando..." : "Salvar"}</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Card Dialog */}
+      <Dialog open={deleteCardOpen} onOpenChange={setDeleteCardOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Remover cartão</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Tem certeza? O cartão será desativado mas os lançamentos associados serão mantidos.</p>
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteCardOpen(false)}>Cancelar</Button>
+            <Button variant="destructive" className="flex-1" onClick={handleDeleteCard} disabled={deleteCardLoading}>{deleteCardLoading ? "Removendo..." : "Remover"}</Button>
+          </div>
         </DialogContent>
       </Dialog>
 
