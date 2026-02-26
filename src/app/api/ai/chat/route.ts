@@ -115,7 +115,8 @@ async function handleToolCall(
   toolName: string,
   args: Record<string, any>,
   userId: string,
-  supabase: Awaited<ReturnType<typeof createClient>>
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  cachedWalletId: string | null
 ): Promise<string> {
   // === READ tools ===
   if (toolName === "get_month_summary") {
@@ -215,20 +216,21 @@ async function handleToolCall(
 
   // === WRITE tools ===
   if (toolName === "create_transaction") {
-    const walletId = await getWalletId(userId, supabase);
-    if (!walletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+    if (!cachedWalletId) return JSON.stringify({ erro: "Carteira não encontrada" });
 
     const amountCents = Math.round((args.amount ?? 0) * 100);
-    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido" });
+    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido. Informe um valor maior que zero." });
+    if (!args.description || args.description.trim().length === 0) return JSON.stringify({ erro: "Descrição é obrigatória" });
+    if (args.date && !/^\d{4}-\d{2}-\d{2}$/.test(args.date)) return JSON.stringify({ erro: "Data inválida. Use o formato YYYY-MM-DD" });
 
     const date = args.date || localDate(new Date());
     const { error } = await supabase.from("transactions").insert({
       user_id: userId,
-      wallet_id: walletId,
+      wallet_id: cachedWalletId,
       type: args.type,
       amount_cents: amountCents,
       date,
-      description: args.description,
+      description: args.description.trim(),
       payment_method: args.payment_method || "pix",
     });
 
@@ -242,17 +244,18 @@ async function handleToolCall(
   }
 
   if (toolName === "create_scheduled_payment") {
-    const walletId = await getWalletId(userId, supabase);
-    if (!walletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+    if (!cachedWalletId) return JSON.stringify({ erro: "Carteira não encontrada" });
 
     const amountCents = Math.round((args.amount ?? 0) * 100);
-    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido" });
+    if (amountCents <= 0) return JSON.stringify({ erro: "Valor inválido. Informe um valor maior que zero." });
+    if (!args.title || args.title.trim().length === 0) return JSON.stringify({ erro: "Título é obrigatório" });
+    if (!args.due_date || !/^\d{4}-\d{2}-\d{2}$/.test(args.due_date)) return JSON.stringify({ erro: "Data inválida. Use o formato YYYY-MM-DD" });
 
     const paymentType = args.payment_type || "expense";
     const { error } = await supabase.from("scheduled_payments").insert({
       user_id: userId,
-      wallet_id: walletId,
-      title: args.title,
+      wallet_id: cachedWalletId,
+      title: args.title.trim(),
       amount_cents: amountCents,
       due_date: args.due_date,
       kind: args.kind || "other",
@@ -269,20 +272,37 @@ async function handleToolCall(
   }
 
   if (toolName === "mark_payment_paid") {
-    const walletId = await getWalletId(userId, supabase);
-    if (!walletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+    if (!cachedWalletId) return JSON.stringify({ erro: "Carteira não encontrada" });
+    if (!args.title || args.title.trim().length < 2) {
+      return JSON.stringify({ erro: "Informe pelo menos 2 caracteres do nome da conta" });
+    }
 
-    // Search for the payment by partial title match
+    // Search for matching payments (up to 5)
     const { data: payments } = await supabase
       .from("scheduled_payments")
       .select("id, title, amount_cents, due_date, type")
       .eq("user_id", userId)
       .in("status", ["pending", "overdue"])
-      .ilike("title", `%${args.title}%`)
-      .limit(1);
+      .ilike("title", `%${args.title.trim()}%`)
+      .order("due_date", { ascending: true })
+      .limit(5);
 
     if (!payments || payments.length === 0) {
       return JSON.stringify({ erro: `Nenhuma conta pendente encontrada com "${args.title}"` });
+    }
+
+    // If multiple matches, ask user to choose
+    if (payments.length > 1) {
+      const options = payments.map((p) => ({
+        titulo: p.title,
+        valor: `R$ ${(Number(p.amount_cents) / 100).toFixed(2)}`,
+        vencimento: p.due_date,
+        tipo: p.type === "income" ? "recebimento" : "conta",
+      }));
+      return JSON.stringify({
+        aviso: `Encontrei ${payments.length} contas com "${args.title}". Qual delas você quer marcar?`,
+        opcoes: options,
+      });
     }
 
     const payment = payments[0];
@@ -291,7 +311,7 @@ async function handleToolCall(
     // Create transaction with correct type
     const { data: txData, error: txError } = await supabase.from("transactions").insert({
       user_id: userId,
-      wallet_id: walletId,
+      wallet_id: cachedWalletId,
       type: isIncome ? "income" as const : "expense" as const,
       amount_cents: payment.amount_cents,
       date: payment.due_date,
@@ -374,6 +394,7 @@ Regras:
 - Valores são em reais (BRL). Ex: "300 reais" = amount: 300`;
 
   try {
+    let cachedWalletId: string | null = null;
     const openaiMessages: any[] = [
       { role: "system", content: systemPrompt },
       ...messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -413,9 +434,19 @@ Regras:
       rounds++;
       openaiMessages.push(assistantMessage);
 
+      // Pre-fetch wallet_id once for all tool calls
+      if (!cachedWalletId) {
+        cachedWalletId = await getWalletId(user.id, supabase);
+      }
+
       for (const toolCall of assistantMessage.tool_calls) {
-        const args = JSON.parse(toolCall.function.arguments);
-        const result = await handleToolCall(toolCall.function.name, args, user.id, supabase);
+        let args: Record<string, any>;
+        try {
+          args = JSON.parse(toolCall.function.arguments);
+        } catch {
+          args = {};
+        }
+        const result = await handleToolCall(toolCall.function.name, args, user.id, supabase, cachedWalletId);
 
         openaiMessages.push({
           role: "tool",

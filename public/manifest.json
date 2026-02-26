@@ -7,6 +7,7 @@
   "background_color": "#FFFFFF",
   "theme_color": "#60A5FA",
   "orientation": "portrait",
+  "categories": ["finance", "productivity"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -25,6 +26,29 @@
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Novo lançamento",
+      "short_name": "Lançar",
+      "url": "/transactions/new",
+      "description": "Registrar entrada ou saída",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "url": "/schedule",
+      "description": "Ver contas pendentes",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "IA Chat",
+      "short_name": "IA",
+      "url": "/ai",
+      "description": "Conversar com a IA financeira",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

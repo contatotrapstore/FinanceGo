@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinanceGO - Offline</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      background: #0B1220;
+      color: #F1F5F9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      text-align: center;
+      padding: 2rem;
+    }
+    .container { max-width: 320px; }
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    p { color: #94A3B8; font-size: 0.875rem; line-height: 1.5; }
+    button {
+      margin-top: 1.5rem;
+      background: #60A5FA;
+      color: #0B1220;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.75rem;
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    button:active { opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">&#128274;</div>
+    <h1>Sem conexao</h1>
+    <p>Voce esta offline. Verifique sua conexao com a internet e tente novamente.</p>
+    <button onclick="location.reload()">Tentar novamente</button>
+  </div>
+</body>
+</html>

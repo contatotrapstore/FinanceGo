@@ -301,18 +301,17 @@ export default function AIChatPage() {
               <Bot className="h-10 w-10 lg:h-12 lg:w-12 mb-2 lg:mb-3 opacity-50" />
               <p className="text-sm text-center">Olá! Sou o assistente do FinanceGO.</p>
               <p className="text-xs mt-1 text-center">Fale ou digite para criar lançamentos e gerenciar suas finanças.</p>
-              <div className="mt-3 lg:mt-4 space-y-1.5 lg:space-y-2 w-full max-w-xs">
+              <div className="mt-3 lg:mt-4 flex flex-wrap gap-1.5 lg:gap-2 justify-center max-w-sm">
                 {[
-                  "Recebi 5000 reais de salário",
-                  "Gastei 300 reais no mercado",
-                  "Vou receber 2000 de freelance dia 28",
-                  "Tenho conta de 50 reais todo dia 10",
+                  "Recebi 5000 de salário",
+                  "Gastei 300 no mercado",
+                  "Quanto gastei este mês?",
                   "Se pagar tudo, fico com quanto?",
                 ].map((q) => (
                   <button
                     key={q}
-                    onClick={() => setInput(q)}
-                    className="block w-full text-left text-xs text-primary hover:underline py-0.5"
+                    onClick={() => { setInput(q); }}
+                    className="text-xs bg-muted hover:bg-muted/80 text-foreground px-3 py-1.5 rounded-full transition-colors"
                   >
                     {q}
                   </button>

@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Search, Filter } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Filter, Download } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import type { Database } from "@/lib/supabase/types";
@@ -212,6 +212,33 @@ export default function TransactionsPage() {
     setDeleteLoading(false);
   }
 
+  function handleExportCSV() {
+    if (transactions.length === 0) {
+      toast.error("Nenhum lançamento para exportar");
+      return;
+    }
+    const header = "Data,Tipo,Descrição,Categoria,Método,Valor (R$)\n";
+    const rows = transactions.map((t) => {
+      const date = new Date(t.date + "T12:00:00").toLocaleDateString("pt-BR");
+      const tipo = t.type === "income" ? "Entrada" : "Saída";
+      const desc = (t.description || "Sem descrição").replace(/,/g, ";");
+      const cat = ((t.categories as CategoryJoin)?.name ?? "Sem categoria").replace(/,/g, ";");
+      const method = t.payment_method;
+      const valor = (Number(t.amount_cents) / 100).toFixed(2).replace(".", ",");
+      return `${date},${tipo},${desc},${cat},${method},${valor}`;
+    }).join("\n");
+
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + header + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `financego-lancamentos-${filterMonth || "todos"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("CSV exportado!");
+  }
+
   const editFilteredCategories = categories.filter(
     (c) => c.type === editType || c.type === "both"
   );
@@ -220,12 +247,18 @@ export default function TransactionsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Lançamentos</h1>
-        <Link href="/transactions/new">
-          <Button size="sm">
-            <Plus className="h-4 w-4 mr-1" />
-            Novo
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleExportCSV} title="Exportar CSV">
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline ml-1">Exportar</span>
           </Button>
-        </Link>
+          <Link href="/transactions/new">
+            <Button size="sm">
+              <Plus className="h-4 w-4 mr-1" />
+              Novo
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -235,7 +268,7 @@ export default function TransactionsPage() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Filtros</span>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
             <div>
               <Label className="text-xs">Mês</Label>
               <div className="flex gap-1">
@@ -309,10 +342,24 @@ export default function TransactionsPage() {
       {transactions.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            <p>Nenhum lançamento encontrado.</p>
-            <Link href="/transactions/new" className="text-primary hover:underline text-sm mt-2 block">
-              Criar primeiro lançamento
-            </Link>
+            {(filterType !== "all" || filterCategory !== "all" || filterMonth || searchText.trim()) ? (
+              <>
+                <p className="text-sm">Nenhum resultado com esses filtros.</p>
+                <button
+                  onClick={() => { setFilterType("all"); setFilterCategory("all"); setFilterMonth(""); setSearchText(""); }}
+                  className="text-primary hover:underline text-sm mt-2"
+                >
+                  Limpar filtros
+                </button>
+              </>
+            ) : (
+              <>
+                <p>Nenhum lançamento registrado ainda.</p>
+                <Link href="/transactions/new" className="text-primary hover:underline text-sm mt-2 block">
+                  Criar primeiro lançamento
+                </Link>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -341,20 +388,20 @@ export default function TransactionsPage() {
                 </div>
                 {/* Row 2: Badge + Actions */}
                 <div className="flex items-center justify-between mt-2">
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  <Badge variant="secondary" className="text-[11px] px-2 py-0.5">
                     {(t.categories as CategoryJoin)?.name ?? "Sem categoria"}
                   </Badge>
-                  <div className="flex items-center gap-0.5">
-                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEdit(t)}>
-                      <Pencil className="h-3.5 w-3.5" />
+                  <div className="flex items-center gap-1">
+                    <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(t)}>
+                      <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      className="h-10 w-10 p-0 text-destructive hover:text-destructive"
                       onClick={() => { setDeleteId(t.id); setDeleteOpen(true); }}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

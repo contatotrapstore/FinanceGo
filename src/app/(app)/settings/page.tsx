@@ -298,16 +298,16 @@ export default function SettingsPage() {
                       <span className="text-xs text-muted-foreground">({typeLabels[c.type] ?? c.type})</span>
                     </div>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEditCategory(c)}>
-                        <Pencil className="h-3 w-3" />
+                      <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => openEditCategory(c)}>
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        className="h-9 w-9 p-0 text-destructive hover:text-destructive"
                         onClick={() => { setDeleteCatId(c.id); setDeleteCatOpen(true); }}
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>

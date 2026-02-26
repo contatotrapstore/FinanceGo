@@ -1,10 +1,11 @@
-const CACHE_NAME = "financego-v3";
+const CACHE_NAME = "financego-v4";
 const STATIC_ASSETS = [
   "/manifest.json",
   "/logo.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
+  "/offline.html",
 ];
 
 // Install: cache only truly static assets (not app routes that need auth)
@@ -42,7 +43,7 @@ self.addEventListener("fetch", (event) => {
   if (url.hostname.includes("supabase")) return;
   if (url.pathname.startsWith("/api/")) return;
 
-  // Network-first: try network, fall back to cache
+  // Network-first: try network, fall back to cache or offline page
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -52,6 +53,15 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(request))
+      .catch(() => {
+        return caches.match(request).then((cached) => {
+          if (cached) return cached;
+          // For navigation requests, show offline page
+          if (request.mode === "navigate") {
+            return caches.match("/offline.html");
+          }
+          return cached;
+        });
+      })
   );
 });

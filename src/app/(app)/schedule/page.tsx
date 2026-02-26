@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Check, CalendarClock, Pencil, Trash2, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, Check, CalendarClock, Pencil, Trash2, TrendingUp, TrendingDown, Search } from "lucide-react";
 import { toast } from "sonner";
 import type { Database } from "@/lib/supabase/types";
 
@@ -79,6 +79,10 @@ export default function SchedulePage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Filter state
+  const [filterStatus, setFilterStatus] = useState<string>("active");
+  const [searchText, setSearchText] = useState("");
 
   const supabase = createClient();
 
@@ -405,7 +409,7 @@ export default function SchedulePage() {
                       +{formatCurrency(d.totalIncome)}
                     </p>
                   )}
-                  <p className="text-[10px] text-muted-foreground mt-1">
+                  <p className="text-[11px] text-muted-foreground mt-1">
                     {d.countExpenses > 0 && `${d.countExpenses} conta${d.countExpenses > 1 ? "s" : ""}`}
                     {d.countExpenses > 0 && d.countIncome > 0 && " · "}
                     {d.countIncome > 0 && `${d.countIncome} receb.`}
@@ -417,16 +421,77 @@ export default function SchedulePage() {
         );
       })()}
 
-      {payments.length === 0 ? (
+      {/* Filters */}
+      {payments.length > 0 && (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <CalendarClock className="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>Nenhuma conta futura cadastrada.</p>
+          <CardContent className="py-3 px-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Status</Label>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Pendentes / Atrasadas</SelectItem>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="paid">Pagas / Recebidas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Busca</Label>
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Nome da conta..."
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    className="h-9 pl-8"
+                  />
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
-      ) : (
+      )}
+
+      {(() => {
+        const filteredPayments = payments.filter((p) => {
+          if (filterStatus === "active" && p.status !== "pending" && p.status !== "overdue") return false;
+          if (filterStatus === "paid" && p.status !== "paid") return false;
+          if (searchText.trim()) {
+            return p.title.toLowerCase().includes(searchText.toLowerCase());
+          }
+          return true;
+        });
+
+        if (payments.length === 0) return (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              <CalendarClock className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <p>Nenhuma conta futura cadastrada.</p>
+            </CardContent>
+          </Card>
+        );
+
+        if (filteredPayments.length === 0) return (
+          <Card>
+            <CardContent className="py-6 text-center text-muted-foreground">
+              <p className="text-sm">Nenhum resultado com esses filtros.</p>
+              <button
+                onClick={() => { setFilterStatus("all"); setSearchText(""); }}
+                className="text-primary hover:underline text-sm mt-2"
+              >
+                Limpar filtros
+              </button>
+            </CardContent>
+          </Card>
+        );
+
+        return (
         <div className="space-y-2">
-          {payments.map((p) => {
+          {filteredPayments.map((p) => {
             const isIncome = p.type === "income";
             const isActive = p.status === "pending" || p.status === "overdue";
             return (
@@ -447,41 +512,41 @@ export default function SchedulePage() {
                   {/* Row 2: Badges + Actions */}
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <Badge className={`text-[10px] px-1.5 py-0 ${statusColors[p.status] ?? ""}`}>
+                      <Badge className={`text-[11px] px-2 py-0.5 ${statusColors[p.status] ?? ""}`}>
                         {statusLabel(p)}
                       </Badge>
                       {isIncome ? (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-green-500/50 text-green-600 dark:text-green-400">
+                        <Badge variant="outline" className="text-[11px] px-2 py-0.5 border-green-500/50 text-green-600 dark:text-green-400">
                           Entrada
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                        <Badge variant="outline" className="text-[11px] px-2 py-0.5">
                           {kindLabels[p.kind] ?? p.kind}
                         </Badge>
                       )}
                     </div>
                     {isActive && (
-                      <div className="flex items-center gap-0.5">
+                      <div className="flex items-center gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0"
+                          className="h-10 w-10 p-0"
                           onClick={() => markAsDone(p.id)}
                           title={isIncome ? "Receber" : "Pagar"}
                         >
                           <Check className="h-4 w-4 text-green-500" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEdit(p)} title="Editar">
-                          <Pencil className="h-3.5 w-3.5" />
+                        <Button size="sm" variant="ghost" className="h-10 w-10 p-0" onClick={() => openEdit(p)} title="Editar">
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          className="h-10 w-10 p-0 text-destructive hover:text-destructive"
                           onClick={() => { setDeleteId(p.id); setDeleteOpen(true); }}
                           title="Excluir"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     )}
@@ -491,7 +556,8 @@ export default function SchedulePage() {
             );
           })}
         </div>
-      )}
+        );
+      })()}
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
