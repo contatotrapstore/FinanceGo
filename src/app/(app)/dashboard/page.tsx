@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   DollarSign,
   Plus,
+  Activity,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -59,6 +60,41 @@ export default async function DashboardPage() {
     .filter((t) => t.type === "expense")
     .reduce((sum, t) => sum + Number(t.amount_cents), 0);
   const balance = income - expense;
+
+  // Fetch PREVIOUS month transactions for comparison
+  const prevMo = mo === 0 ? 11 : mo - 1;
+  const prevYr = mo === 0 ? yr - 1 : yr;
+  const prevStart = `${prevYr}-${pad(prevMo + 1)}-01`;
+  const prevLastDay = new Date(prevYr, prevMo + 1, 0).getDate();
+  const prevEnd = `${prevYr}-${pad(prevMo + 1)}-${pad(prevLastDay)}`;
+  const prevMonthName = new Date(prevYr, prevMo).toLocaleDateString("pt-BR", { month: "short" });
+
+  const { data: prevTransactions } = await supabase
+    .from("transactions")
+    .select("type, amount_cents")
+    .eq("user_id", user.id)
+    .gte("date", prevStart)
+    .lte("date", prevEnd);
+
+  const prevExpense = (prevTransactions ?? [])
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
+
+  // Spending pace calculation
+  const dayOfMonth = now.getDate();
+  const pctMonthPassed = Math.round((dayOfMonth / lastDay) * 100);
+  const pctBudgetUsed = prevExpense > 0 ? Math.round((expense / prevExpense) * 100) : 0;
+
+  // Profile for greeting
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
+  const userName = profile?.name?.split(" ")[0] || "";
 
   // Fetch ALL pending/overdue scheduled payments (not just current month)
   const { data: allPendingPayments } = await supabase
@@ -114,8 +150,8 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold capitalize">{formatMonthYear(now)}</h1>
-        <p className="text-muted-foreground text-sm">Resumo financeiro do mês</p>
+        <h1 className="text-2xl font-bold">{greeting}{userName ? `, ${userName}` : ""}!</h1>
+        <p className="text-muted-foreground text-sm capitalize">{formatMonthYear(now)} · {saldoAtual >= 0 ? "Finanças no azul" : "Atenção ao saldo"}</p>
       </div>
 
       {/* Saldo Atual - Destaque */}
@@ -140,17 +176,56 @@ export default async function DashboardPage() {
               </div>
             )}
           </div>
-          {/* Quick summary phrase */}
+          {/* Quick summary phrase with comparison */}
           <p className="text-xs text-muted-foreground mt-2">
             {expense > 0
-              ? `Você gastou ${formatCurrency(expense)} este mês.`
-              : "Nenhum gasto registrado este mês."
+              ? `Você gastou ${formatCurrency(expense)} este mês`
+              : "Nenhum gasto registrado este mês"
             }
+            {expense > 0 && prevExpense > 0 && (() => {
+              const pctChange = Math.round(((expense - prevExpense) / prevExpense) * 100);
+              if (pctChange > 0) return <span className="text-red-500 font-medium">{` · ↑${pctChange}% vs ${prevMonthName}`}</span>;
+              if (pctChange < 0) return <span className="text-green-500 font-medium">{` · ↓${Math.abs(pctChange)}% vs ${prevMonthName}`}</span>;
+              return <span className="text-muted-foreground">{` · = vs ${prevMonthName}`}</span>;
+            })()}
+            {expense > 0 ? "." : "."}
             {pendingExpenses > 0 && ` Faltam ${formatCurrency(pendingExpenses)} em contas a pagar.`}
             {pendingIncome > 0 && ` ${formatCurrency(pendingIncome)} a receber.`}
           </p>
         </CardContent>
       </Card>
+
+      {/* Spending Pace Card */}
+      {prevExpense > 0 && expense > 0 && (
+        <Card>
+          <CardContent className="pt-3 pb-3 px-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">Ritmo de gastos</span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-2.5 mb-2">
+              <div
+                className={`h-2.5 rounded-full transition-all ${
+                  pctBudgetUsed > pctMonthPassed ? "bg-red-500" : "bg-green-500"
+                }`}
+                style={{ width: `${Math.min(pctBudgetUsed, 100)}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{pctBudgetUsed}% do gasto de {prevMonthName}</span>
+              <span>Dia {dayOfMonth}/{lastDay} ({pctMonthPassed}%)</span>
+            </div>
+            <p className="text-xs mt-1.5">
+              {pctBudgetUsed > pctMonthPassed + 15
+                ? <span className="text-red-500 font-medium">Ritmo acelerado — cuidado com os gastos</span>
+                : pctBudgetUsed > 100
+                  ? <span className="text-red-500 font-medium">Já ultrapassou o total do mês anterior</span>
+                  : <span className="text-green-600 dark:text-green-400 font-medium">No ritmo — gastos dentro do esperado</span>
+              }
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick action when no transactions yet */}
       {(!allTransactions || allTransactions.length === 0) && (

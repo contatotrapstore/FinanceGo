@@ -268,7 +268,12 @@ export default function SchedulePage() {
   const statusLabel = (p: ScheduledPayment) => {
     if (p.status === "paid") return p.type === "income" ? "Recebido" : "Pago";
     if (p.status === "pending") return "Pendente";
-    if (p.status === "overdue") return p.type === "income" ? "Atrasado" : "Atrasado";
+    if (p.status === "overdue") {
+      const now = new Date();
+      const due = new Date(p.due_date + "T12:00:00");
+      const diffDays = Math.floor((now.getTime() - due.getTime()) / 86400000);
+      return diffDays > 0 ? `Atrasado (${diffDays}d)` : "Atrasado";
+    }
     return "Cancelado";
   };
 

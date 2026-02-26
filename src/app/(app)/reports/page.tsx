@@ -28,6 +28,8 @@ type CategoryJoin = { name: string; color: string | null } | null;
 export default function ReportsPage() {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [categoryData, setCategoryData] = useState<{ name: string; value: number; color: string }[]>([]);
+  const [prevCategoryData, setPrevCategoryData] = useState<{ name: string; value: number }[]>([]);
+  const [prevMonthName, setPrevMonthName] = useState("");
   const [topExpenses, setTopExpenses] = useState<{ description: string; amount: number }[]>([]);
   const [dailyBalance, setDailyBalance] = useState<{ day: string; saldo: number }[]>([]);
   const supabase = createClient();
@@ -43,6 +45,33 @@ export default function ReportsPage() {
     const lastDay = new Date(year, month + 1, 0).getDate();
     const endOfMonth = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // Previous month for comparison
+    const prevMo = month === 0 ? 11 : month - 1;
+    const prevYr = month === 0 ? year - 1 : year;
+    const prevStart = `${prevYr}-${pad(prevMo + 1)}-01`;
+    const prevLastDay = new Date(prevYr, prevMo + 1, 0).getDate();
+    const prevEnd = `${prevYr}-${pad(prevMo + 1)}-${pad(prevLastDay)}`;
+    setPrevMonthName(new Date(prevYr, prevMo).toLocaleDateString("pt-BR", { month: "long" }));
+
+    const { data: prevExpenses } = await supabase
+      .from("transactions")
+      .select("amount_cents, categories(name, color)")
+      .eq("type", "expense")
+      .eq("user_id", user.id)
+      .gte("date", prevStart)
+      .lte("date", prevEnd);
+
+    if (prevExpenses) {
+      const map = new Map<string, number>();
+      prevExpenses.forEach((t) => {
+        const catName = (t.categories as CategoryJoin)?.name ?? "Sem categoria";
+        map.set(catName, (map.get(catName) ?? 0) + Number(t.amount_cents));
+      });
+      setPrevCategoryData(Array.from(map.entries()).map(([name, value]) => ({ name, value })));
+    } else {
+      setPrevCategoryData([]);
+    }
 
     // Category breakdown
     const { data: expenses } = await supabase
@@ -246,6 +275,43 @@ export default function ReportsPage() {
             )}
           </CardContent>
         </Card>
+        {/* Month Comparison */}
+        {categoryData.length > 0 && prevCategoryData.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">vs {prevMonthName}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {categoryData.map((cat) => {
+                  const prev = prevCategoryData.find((p) => p.name === cat.name);
+                  const prevVal = prev?.value ?? 0;
+                  const pctChange = prevVal > 0 ? Math.round(((cat.value - prevVal) / prevVal) * 100) : 0;
+                  return (
+                    <div key={cat.name} className="flex items-center justify-between text-sm gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                        <span className="truncate">{cat.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-xs text-muted-foreground w-20 text-right">{formatCurrency(prevVal)}</span>
+                        <span className="font-medium w-20 text-right">{formatCurrency(cat.value)}</span>
+                        {prevVal > 0 ? (
+                          <span className={`text-xs font-medium w-12 text-right ${pctChange > 0 ? "text-red-500" : pctChange < 0 ? "text-green-500" : "text-muted-foreground"}`}>
+                            {pctChange > 0 ? `↑${pctChange}%` : pctChange < 0 ? `↓${Math.abs(pctChange)}%` : "="}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground w-12 text-right">novo</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Top Expenses Bar */}
         <Card>
           <CardHeader>

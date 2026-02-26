@@ -245,6 +245,31 @@ export default function NewTransactionPage() {
             {/* Date */}
             <div className="space-y-2">
               <Label htmlFor="date">Data</Label>
+              <div className="flex gap-1.5 mb-1.5">
+                {[
+                  { label: "Hoje", offset: 0 },
+                  { label: "Ontem", offset: -1 },
+                  { label: "Anteontem", offset: -2 },
+                ].map((shortcut) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + shortcut.offset);
+                  const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                  return (
+                    <button
+                      key={shortcut.label}
+                      type="button"
+                      onClick={() => setDate(val)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        date === val
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {shortcut.label}
+                    </button>
+                  );
+                })}
+              </div>
               <Input
                 id="date"
                 type="date"
