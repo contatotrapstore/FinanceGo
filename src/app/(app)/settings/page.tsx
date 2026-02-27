@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { toast } from "sonner";
-import { User, Palette, LogOut, Tag, Plus, Pencil, Trash2, Bell, CreditCard } from "lucide-react";
+import { User, Palette, LogOut, Tag, Plus, Pencil, Trash2, Bell, CreditCard, Landmark } from "lucide-react";
 import { createClient as createUntyped } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 
@@ -47,6 +47,20 @@ type CCard = {
   payment_day: number;
   color: string;
   status: string;
+};
+
+type Loan = {
+  id: string;
+  name: string;
+  lender: string | null;
+  total_amount_cents: number;
+  monthly_payment_cents: number;
+  total_installments: number;
+  paid_installments: number;
+  interest_rate_pct: number;
+  start_date: string;
+  status: string;
+  notes: string | null;
 };
 
 const cardColors = [
@@ -117,6 +131,35 @@ export default function SettingsPage() {
   const [deleteCardId, setDeleteCardId] = useState("");
   const [deleteCardLoading, setDeleteCardLoading] = useState(false);
 
+  // Loans
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loanOpen, setLoanOpen] = useState(false);
+  const [loanName, setLoanName] = useState("");
+  const [loanLender, setLoanLender] = useState("");
+  const [loanTotal, setLoanTotal] = useState("");
+  const [loanMonthly, setLoanMonthly] = useState("");
+  const [loanInstallments, setLoanInstallments] = useState("");
+  const [loanPaid, setLoanPaid] = useState("0");
+  const [loanRate, setLoanRate] = useState("");
+  const [loanStart, setLoanStart] = useState("");
+  const [loanNotes, setLoanNotes] = useState("");
+  const [loanLoading, setLoanLoading] = useState(false);
+  const [editLoanOpen, setEditLoanOpen] = useState(false);
+  const [editLoanId, setEditLoanId] = useState("");
+  const [editLoanName, setEditLoanName] = useState("");
+  const [editLoanLender, setEditLoanLender] = useState("");
+  const [editLoanTotal, setEditLoanTotal] = useState("");
+  const [editLoanMonthly, setEditLoanMonthly] = useState("");
+  const [editLoanInstallments, setEditLoanInstallments] = useState("");
+  const [editLoanPaid, setEditLoanPaid] = useState("0");
+  const [editLoanRate, setEditLoanRate] = useState("");
+  const [editLoanStart, setEditLoanStart] = useState("");
+  const [editLoanNotes, setEditLoanNotes] = useState("");
+  const [editLoanLoading, setEditLoanLoading] = useState(false);
+  const [deleteLoanOpen, setDeleteLoanOpen] = useState(false);
+  const [deleteLoanId, setDeleteLoanId] = useState("");
+  const [deleteLoanLoading, setDeleteLoanLoading] = useState(false);
+
   // Notifications
   const [pushSupported, setPushSupported] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -144,6 +187,11 @@ export default function SettingsPage() {
     if (data) setCards(data as CCard[]);
   }, []);
 
+  const loadLoans = useCallback(async (uid: string) => {
+    const { data } = await db.from("loans").select("*").eq("user_id", uid).eq("status", "active").order("name");
+    if (data) setLoans(data as Loan[]);
+  }, []);
+
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -158,6 +206,7 @@ export default function SettingsPage() {
         if (profile) setName(profile.name);
         loadCategories(user.id);
         loadCards(user.id);
+        loadLoans(user.id);
       }
 
       // Check push notification support
@@ -169,7 +218,7 @@ export default function SettingsPage() {
       }
     }
     load();
-  }, [loadCategories, loadCards]);
+  }, [loadCategories, loadCards, loadLoans]);
 
   async function handleSave() {
     setLoading(true);
@@ -301,6 +350,68 @@ export default function SettingsPage() {
     if (error) { toast.error("Erro: " + error.message); }
     else { toast.success("Cartão removido!"); setDeleteCardOpen(false); loadCards(userId); }
     setDeleteCardLoading(false);
+  }
+
+  async function handleCreateLoan(e: React.FormEvent) {
+    e.preventDefault();
+    setLoanLoading(true);
+    const totalCents = Math.round(parseFloat(loanTotal) * 100);
+    const monthlyCents = Math.round(parseFloat(loanMonthly) * 100);
+    if (isNaN(totalCents) || totalCents <= 0) { toast.error("Valor total inválido"); setLoanLoading(false); return; }
+    if (isNaN(monthlyCents) || monthlyCents <= 0) { toast.error("Parcela mensal inválida"); setLoanLoading(false); return; }
+    const { error } = await db.from("loans").insert({
+      user_id: userId, name: loanName, lender: loanLender || null,
+      total_amount_cents: totalCents, monthly_payment_cents: monthlyCents,
+      total_installments: parseInt(loanInstallments) || 1, paid_installments: parseInt(loanPaid) || 0,
+      interest_rate_pct: parseFloat(loanRate) || 0, start_date: loanStart || new Date().toISOString().split("T")[0],
+      notes: loanNotes || null,
+    });
+    if (error) { toast.error("Erro: " + error.message); }
+    else {
+      toast.success("Empréstimo adicionado!");
+      setLoanOpen(false); setLoanName(""); setLoanLender(""); setLoanTotal(""); setLoanMonthly("");
+      setLoanInstallments(""); setLoanPaid("0"); setLoanRate(""); setLoanStart(""); setLoanNotes("");
+      loadLoans(userId);
+    }
+    setLoanLoading(false);
+  }
+
+  function openEditLoan(l: Loan) {
+    setEditLoanId(l.id); setEditLoanName(l.name); setEditLoanLender(l.lender ?? "");
+    setEditLoanTotal((l.total_amount_cents / 100).toFixed(2)); setEditLoanMonthly((l.monthly_payment_cents / 100).toFixed(2));
+    setEditLoanInstallments(String(l.total_installments)); setEditLoanPaid(String(l.paid_installments));
+    setEditLoanRate(String(l.interest_rate_pct)); setEditLoanStart(l.start_date); setEditLoanNotes(l.notes ?? "");
+    setEditLoanOpen(true);
+  }
+
+  async function handleEditLoan(e: React.FormEvent) {
+    e.preventDefault();
+    setEditLoanLoading(true);
+    const totalCents = Math.round(parseFloat(editLoanTotal) * 100);
+    const monthlyCents = Math.round(parseFloat(editLoanMonthly) * 100);
+    if (isNaN(totalCents) || totalCents <= 0) { toast.error("Valor total inválido"); setEditLoanLoading(false); return; }
+    if (isNaN(monthlyCents) || monthlyCents <= 0) { toast.error("Parcela mensal inválida"); setEditLoanLoading(false); return; }
+    const paid = parseInt(editLoanPaid) || 0;
+    const total = parseInt(editLoanInstallments) || 1;
+    const status = paid >= total ? "completed" : "active";
+    const { error } = await db.from("loans").update({
+      name: editLoanName, lender: editLoanLender || null,
+      total_amount_cents: totalCents, monthly_payment_cents: monthlyCents,
+      total_installments: total, paid_installments: paid,
+      interest_rate_pct: parseFloat(editLoanRate) || 0, start_date: editLoanStart,
+      notes: editLoanNotes || null, status,
+    }).eq("id", editLoanId);
+    if (error) { toast.error("Erro: " + error.message); }
+    else { toast.success("Empréstimo atualizado!"); setEditLoanOpen(false); loadLoans(userId); }
+    setEditLoanLoading(false);
+  }
+
+  async function handleDeleteLoan() {
+    setDeleteLoanLoading(true);
+    const { error } = await db.from("loans").delete().eq("id", deleteLoanId);
+    if (error) { toast.error("Erro: " + error.message); }
+    else { toast.success("Empréstimo excluído!"); setDeleteLoanOpen(false); loadLoans(userId); }
+    setDeleteLoanLoading(false);
   }
 
   function urlBase64ToUint8Array(base64String: string) {
@@ -605,6 +716,107 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Loans */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Landmark className="h-4 w-4" />
+              Meus Empréstimos
+            </CardTitle>
+            <Dialog open={loanOpen} onOpenChange={setLoanOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Novo</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Adicionar empréstimo</DialogTitle></DialogHeader>
+                <form onSubmit={handleCreateLoan} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>Nome</Label>
+                    <Input value={loanName} onChange={(e) => setLoanName(e.target.value)} placeholder="Ex: Empréstimo Nubank" required />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Credor / Banco</Label>
+                    <Input value={loanLender} onChange={(e) => setLoanLender(e.target.value)} placeholder="Ex: Nubank, Mercado Pago, Mãe..." />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label>Valor total (R$)</Label>
+                      <Input type="number" step="0.01" min="0.01" value={loanTotal} onChange={(e) => setLoanTotal(e.target.value)} required inputMode="decimal" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Parcela mensal (R$)</Label>
+                      <Input type="number" step="0.01" min="0.01" value={loanMonthly} onChange={(e) => setLoanMonthly(e.target.value)} required inputMode="decimal" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1.5">
+                      <Label>Total parcelas</Label>
+                      <Input type="number" min="1" value={loanInstallments} onChange={(e) => setLoanInstallments(e.target.value)} required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Pagas</Label>
+                      <Input type="number" min="0" value={loanPaid} onChange={(e) => setLoanPaid(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Juros % a.m.</Label>
+                      <Input type="number" step="0.01" min="0" value={loanRate} onChange={(e) => setLoanRate(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Data início</Label>
+                    <Input type="date" value={loanStart} onChange={(e) => setLoanStart(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Observações</Label>
+                    <Input value={loanNotes} onChange={(e) => setLoanNotes(e.target.value)} placeholder="Ex: Juros compostos, carência 3 meses..." />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loanLoading}>{loanLoading ? "Salvando..." : "Adicionar"}</Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loans.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Nenhum empréstimo cadastrado.</p>
+          ) : (
+            <div className="space-y-2">
+              {loans.map((l) => {
+                const remaining = l.total_installments - l.paid_installments;
+                const pct = l.total_installments > 0 ? Math.round((l.paid_installments / l.total_installments) * 100) : 0;
+                const remainingTotal = remaining * l.monthly_payment_cents;
+                return (
+                  <div key={l.id} className="py-2.5 px-3 rounded-lg bg-muted/50 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{l.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {l.lender ? `${l.lender} · ` : ""}
+                          {l.paid_installments}/{l.total_installments} parcelas
+                          {l.interest_rate_pct > 0 ? ` · ${l.interest_rate_pct}% a.m.` : ""}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => openEditLoan(l)}><Pencil className="h-3.5 w-3.5" /></Button>
+                        <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-destructive hover:text-destructive" onClick={() => { setDeleteLoanId(l.id); setDeleteLoanOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </div>
+                    <div className="w-full bg-background rounded-full h-1.5">
+                      <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>R$ {(l.monthly_payment_cents / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês</span>
+                      <span>Falta R$ {(remainingTotal / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} ({remaining}x)</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Theme */}
       <Card>
         <CardHeader>
@@ -764,6 +976,68 @@ export default function SettingsPage() {
           <div className="flex gap-2 mt-4">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteCardOpen(false)}>Cancelar</Button>
             <Button variant="destructive" className="flex-1" onClick={handleDeleteCard} disabled={deleteCardLoading}>{deleteCardLoading ? "Removendo..." : "Remover"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Loan Dialog */}
+      <Dialog open={editLoanOpen} onOpenChange={setEditLoanOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar empréstimo</DialogTitle></DialogHeader>
+          <form onSubmit={handleEditLoan} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input value={editLoanName} onChange={(e) => setEditLoanName(e.target.value)} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Credor / Banco</Label>
+              <Input value={editLoanLender} onChange={(e) => setEditLoanLender(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label>Valor total (R$)</Label>
+                <Input type="number" step="0.01" min="0.01" value={editLoanTotal} onChange={(e) => setEditLoanTotal(e.target.value)} required inputMode="decimal" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Parcela mensal (R$)</Label>
+                <Input type="number" step="0.01" min="0.01" value={editLoanMonthly} onChange={(e) => setEditLoanMonthly(e.target.value)} required inputMode="decimal" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1.5">
+                <Label>Total parcelas</Label>
+                <Input type="number" min="1" value={editLoanInstallments} onChange={(e) => setEditLoanInstallments(e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Pagas</Label>
+                <Input type="number" min="0" value={editLoanPaid} onChange={(e) => setEditLoanPaid(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Juros % a.m.</Label>
+                <Input type="number" step="0.01" min="0" value={editLoanRate} onChange={(e) => setEditLoanRate(e.target.value)} inputMode="decimal" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data início</Label>
+              <Input type="date" value={editLoanStart} onChange={(e) => setEditLoanStart(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Input value={editLoanNotes} onChange={(e) => setEditLoanNotes(e.target.value)} />
+            </div>
+            <Button type="submit" className="w-full" disabled={editLoanLoading}>{editLoanLoading ? "Salvando..." : "Salvar"}</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Loan Dialog */}
+      <Dialog open={deleteLoanOpen} onOpenChange={setDeleteLoanOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Excluir empréstimo</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Tem certeza que deseja excluir este empréstimo?</p>
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteLoanOpen(false)}>Cancelar</Button>
+            <Button variant="destructive" className="flex-1" onClick={handleDeleteLoan} disabled={deleteLoanLoading}>{deleteLoanLoading ? "Excluindo..." : "Excluir"}</Button>
           </div>
         </DialogContent>
       </Dialog>

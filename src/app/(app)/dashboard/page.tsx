@@ -16,6 +16,7 @@ import {
   CreditCard,
   ShoppingBag,
   HeartPulse,
+  Landmark,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -256,6 +257,23 @@ export default async function DashboardPage() {
     (sum: number, i: { installment_amount_cents: number }) => sum + Number(i.installment_amount_cents), 0
   );
 
+  // ====== LOANS ======
+  const { data: activeLoans } = await db
+    .from("loans")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("name");
+
+  const loanCount = (activeLoans ?? []).length;
+  const loanMonthly = (activeLoans ?? []).reduce(
+    (sum: number, l: { monthly_payment_cents: number }) => sum + Number(l.monthly_payment_cents), 0
+  );
+  const loanTotalRemaining = (activeLoans ?? []).reduce(
+    (sum: number, l: { monthly_payment_cents: number; total_installments: number; paid_installments: number }) =>
+      sum + Number(l.monthly_payment_cents) * (l.total_installments - l.paid_installments), 0
+  );
+
   // ====== FINANCIAL HEALTH ======
   const maxCardPct = cardsWithUsage.length > 0
     ? Math.max(...cardsWithUsage.map((c) => c.credit_limit_cents > 0 ? (c.used_cents / c.credit_limit_cents) * 100 : 0))
@@ -352,6 +370,7 @@ export default async function DashboardPage() {
             {pendingIncome > 0 && ` ${formatCurrency(pendingIncome)} a receber.`}
             {totalCardUsed > 0 && ` Faturas: ${formatCurrency(totalCardUsed)}.`}
             {installmentMonthly > 0 && ` Parcelas: ${formatCurrency(installmentMonthly)}/mês.`}
+            {loanMonthly > 0 && ` Empréstimos: ${formatCurrency(loanMonthly)}/mês.`}
           </p>
         </CardContent>
       </Card>
@@ -451,6 +470,61 @@ export default async function DashboardPage() {
                 <p className="text-xs text-muted-foreground">+{installmentCount - 5} mais...</p>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Loans */}
+      {loanCount > 0 && (
+        <Card>
+          <CardContent className="pt-3 pb-3 px-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Landmark className="h-4 w-4 text-amber-500" />
+              <span className="text-sm font-medium">Empréstimos</span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {loanCount} {loanCount === 1 ? "empréstimo" : "empréstimos"} · {formatCurrency(loanMonthly)}/mês
+              </span>
+            </div>
+            <div className="space-y-2">
+              {(activeLoans ?? []).slice(0, 5).map((loan: {
+                id: string;
+                name: string;
+                lender: string | null;
+                monthly_payment_cents: number;
+                total_installments: number;
+                paid_installments: number;
+                interest_rate_pct: number;
+              }) => {
+                const pct = loan.total_installments > 0
+                  ? Math.round((loan.paid_installments / loan.total_installments) * 100)
+                  : 0;
+                const remaining = loan.total_installments - loan.paid_installments;
+                return (
+                  <div key={loan.id} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="truncate flex-1 text-foreground">
+                        {loan.name}
+                        <span className="text-muted-foreground ml-1">
+                          {loan.paid_installments}/{loan.total_installments}
+                        </span>
+                        {loan.interest_rate_pct > 0 && (
+                          <span className="text-amber-500 ml-1">{loan.interest_rate_pct}%</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground font-medium">
+                        {formatCurrency(Number(loan.monthly_payment_cents))}/mês
+                      </span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-1">
+                      <div className="h-1 rounded-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Total restante: {formatCurrency(loanTotalRemaining)}
+            </p>
           </CardContent>
         </Card>
       )}
