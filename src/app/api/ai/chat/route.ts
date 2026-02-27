@@ -170,23 +170,15 @@ async function getWalletId(userId: string, supabase: Awaited<ReturnType<typeof c
   return data?.[0]?.id ?? null;
 }
 
-function getUntypedDb() {
-  return createUntyped(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  );
-}
-
 async function handleToolCall(
   toolName: string,
   args: Record<string, any>,
   userId: string,
   supabase: Awaited<ReturnType<typeof createClient>>,
-  cachedWalletId: string | null
+  cachedWalletId: string | null,
+  db: any
 ): Promise<string> {
   const pad = (n: number) => String(n).padStart(2, "0");
-  const db = getUntypedDb();
 
   // === READ tools ===
   if (toolName === "get_month_summary") {
@@ -300,7 +292,7 @@ async function handleToolCall(
     }
 
     const result = [];
-    for (const card of cards) {
+    for (const card of cards as any[]) {
       const closingDay = card.closing_day || 1;
       let cycleStart: string;
       let cycleEnd: string;
@@ -420,7 +412,7 @@ async function handleToolCall(
     const cardSummaries = [];
     let maxCardPct = 0;
 
-    for (const card of (cards ?? [])) {
+    for (const card of (cards ?? []) as any[]) {
       const closingDay = card.closing_day || 1;
       let cycleStart: string;
       let cycleEnd: string;
@@ -634,14 +626,14 @@ async function handleToolCall(
       return JSON.stringify({ erro: `Nenhum cartão encontrado com nome "${args.card_name}". Cadastre um cartão em Configurações.` });
     }
 
-    const card = cards[0];
+    const card = cards[0] as any;
 
     if (numInstallments > 1) {
       const installmentAmountCents = Math.round(amountCents / numInstallments);
 
       // Create installment record
-      const { data: inst, error: instErr } = await db
-        .from("installments")
+      const { data: inst, error: instErr } = await (db
+        .from("installments") as any)
         .insert({
           user_id: userId,
           card_id: card.id,
@@ -659,7 +651,7 @@ async function handleToolCall(
       if (instErr || !inst) return JSON.stringify({ erro: "Erro ao criar parcelamento: " + (instErr?.message || "") });
 
       // Create first transaction
-      await db.from("transactions").insert({
+      await (db.from("transactions") as any).insert({
         user_id: userId,
         wallet_id: cachedWalletId,
         type: "expense",
@@ -693,7 +685,7 @@ async function handleToolCall(
       }
 
       if (scheduledRows.length > 0) {
-        await db.from("scheduled_payments").insert(scheduledRows);
+        await (db.from("scheduled_payments") as any).insert(scheduledRows);
       }
 
       return JSON.stringify({
@@ -702,7 +694,7 @@ async function handleToolCall(
       });
     } else {
       // Single purchase on card
-      await db.from("transactions").insert({
+      await (db.from("transactions") as any).insert({
         user_id: userId,
         wallet_id: cachedWalletId,
         type: "expense",
@@ -785,6 +777,20 @@ Regras:
 - Valores são em reais (BRL). Ex: "300 reais" = amount: 300`;
 
   try {
+    // Create untyped client with user session for RLS on credit_cards/installments/loans
+    const db = createUntyped(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      await db.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+    }
+
     let cachedWalletId: string | null = null;
     const openaiMessages: any[] = [
       { role: "system", content: systemPrompt },
@@ -837,7 +843,7 @@ Regras:
         } catch {
           args = {};
         }
-        const result = await handleToolCall(toolCall.function.name, args, user.id, supabase, cachedWalletId);
+        const result = await handleToolCall(toolCall.function.name, args, user.id, supabase, cachedWalletId, db);
 
         openaiMessages.push({
           role: "tool",

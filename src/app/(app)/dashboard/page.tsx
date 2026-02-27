@@ -32,11 +32,13 @@ export default async function DashboardPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
   );
-  // Set auth for RLS
-  db.auth.setSession({
-    access_token: (await supabase.auth.getSession()).data.session?.access_token ?? "",
-    refresh_token: (await supabase.auth.getSession()).data.session?.refresh_token ?? "",
-  });
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    await db.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+  }
 
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -46,225 +48,136 @@ export default async function DashboardPage() {
   const lastDay = new Date(yr, mo + 1, 0).getDate();
   const endOfMonth = `${yr}-${pad(mo + 1)}-${pad(lastDay)}`;
   const today = `${yr}-${pad(mo + 1)}-${pad(now.getDate())}`;
-
-  // Fetch ALL transactions for cumulative balance ("Saldo Atual")
-  const { data: allTransactions } = await supabase
-    .from("transactions")
-    .select("type, amount_cents")
-    .eq("user_id", user.id);
-
-  const totalIncome = (allTransactions ?? [])
-    .filter((t) => t.type === "income")
-    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
-  const totalExpense = (allTransactions ?? [])
-    .filter((t) => t.type === "expense")
-    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
-  const saldoAtual = totalIncome - totalExpense;
-
-  // Fetch transactions for current month
-  const { data: transactions } = await supabase
-    .from("transactions")
-    .select("type, amount_cents")
-    .eq("user_id", user.id)
-    .gte("date", startOfMonth)
-    .lte("date", endOfMonth);
-
-  const income = (transactions ?? [])
-    .filter((t) => t.type === "income")
-    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
-  const expense = (transactions ?? [])
-    .filter((t) => t.type === "expense")
-    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
-  const balance = income - expense;
-
-  // Today's spending
-  const { data: todayTx } = await supabase
-    .from("transactions")
-    .select("type, amount_cents")
-    .eq("user_id", user.id)
-    .eq("date", today)
-    .eq("type", "expense");
-  const todaySpending = (todayTx ?? []).reduce((sum, t) => sum + Number(t.amount_cents), 0);
-
-  // Fetch PREVIOUS month transactions for comparison
   const prevMo = mo === 0 ? 11 : mo - 1;
   const prevYr = mo === 0 ? yr - 1 : yr;
   const prevStart = `${prevYr}-${pad(prevMo + 1)}-01`;
   const prevLastDay = new Date(prevYr, prevMo + 1, 0).getDate();
   const prevEnd = `${prevYr}-${pad(prevMo + 1)}-${pad(prevLastDay)}`;
   const prevMonthName = new Date(prevYr, prevMo).toLocaleDateString("pt-BR", { month: "short" });
+  const d30 = new Date(now.getTime() + 30 * 86400000);
+  const in30 = `${d30.getFullYear()}-${pad(d30.getMonth() + 1)}-${pad(d30.getDate())}`;
 
-  const { data: prevTransactions } = await supabase
-    .from("transactions")
-    .select("type, amount_cents")
-    .eq("user_id", user.id)
-    .gte("date", prevStart)
-    .lte("date", prevEnd);
+  // ====== ALL QUERIES IN PARALLEL ======
+  const [
+    { data: allTransactions },
+    { data: allPendingPayments },
+    { data: profile },
+    { data: recent },
+    { data: upcoming },
+    { data: creditCards },
+    { data: activeInstallments },
+    { data: activeLoans },
+  ] = await Promise.all([
+    // 1. All transactions (with card_id + date for filtering) — uses untyped for card_id
+    db.from("transactions").select("type, amount_cents, date, card_id").eq("user_id", user.id),
+    // 2. All pending scheduled payments (with card_id)
+    supabase.from("scheduled_payments").select("*").eq("user_id", user.id).in("status", ["pending", "overdue"]),
+    // 3. Profile
+    supabase.from("profiles").select("name").eq("id", user.id).maybeSingle(),
+    // 4. Recent 5 transactions
+    supabase.from("transactions").select("*, categories(name, color, icon)").eq("user_id", user.id).order("date", { ascending: false }).limit(5),
+    // 5. Upcoming 30 days
+    supabase.from("scheduled_payments").select("*").eq("user_id", user.id).eq("status", "pending").gte("due_date", today).lte("due_date", in30).order("due_date", { ascending: true }).limit(5),
+    // 6. Credit cards
+    db.from("credit_cards").select("*").eq("user_id", user.id).eq("status", "active").order("name"),
+    // 7. Active installments
+    db.from("installments").select("*").eq("user_id", user.id).eq("status", "active").order("created_at", { ascending: false }),
+    // 8. Active loans
+    db.from("loans").select("*").eq("user_id", user.id).eq("status", "active").order("name"),
+  ]);
 
-  const prevExpense = (prevTransactions ?? [])
-    .filter((t) => t.type === "expense")
-    .reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  // ====== COMPUTE FROM ALL TRANSACTIONS (no extra queries) ======
+  const txs = allTransactions ?? [];
+  const totalIncome = txs.filter((t) => t.type === "income").reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  const totalExpense = txs.filter((t) => t.type === "expense").reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  const saldoAtual = totalIncome - totalExpense;
 
-  // Spending pace calculation
+  // Current month
+  const monthTxs = txs.filter((t) => t.date >= startOfMonth && t.date <= endOfMonth);
+  const income = monthTxs.filter((t) => t.type === "income").reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  const expense = monthTxs.filter((t) => t.type === "expense").reduce((sum, t) => sum + Number(t.amount_cents), 0);
+  const balance = income - expense;
+
+  // Today's spending
+  const todaySpending = txs.filter((t) => t.date === today && t.type === "expense").reduce((sum, t) => sum + Number(t.amount_cents), 0);
+
+  // Previous month comparison
+  const prevExpense = txs.filter((t) => t.date >= prevStart && t.date <= prevEnd && t.type === "expense").reduce((sum, t) => sum + Number(t.amount_cents), 0);
+
+  // Spending pace
   const dayOfMonth = now.getDate();
   const pctMonthPassed = Math.round((dayOfMonth / lastDay) * 100);
   const pctBudgetUsed = prevExpense > 0 ? Math.round((expense / prevExpense) * 100) : 0;
 
-  // Profile for greeting
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("name")
-    .eq("id", user.id)
-    .maybeSingle();
-
+  // Greeting
   const hour = now.getHours();
   const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const userName = profile?.name?.split(" ")[0] || "";
 
-  // Fetch ALL pending/overdue scheduled payments (not just current month)
-  const { data: allPendingPayments } = await supabase
-    .from("scheduled_payments")
-    .select("*")
-    .eq("user_id", user.id)
-    .in("status", ["pending", "overdue"]);
-
-  const pendingExpenses = (allPendingPayments ?? [])
-    .filter((p) => p.type !== "income")
-    .reduce((sum, p) => sum + Number(p.amount_cents), 0);
-  const pendingIncome = (allPendingPayments ?? [])
-    .filter((p) => p.type === "income")
-    .reduce((sum, p) => sum + Number(p.amount_cents), 0);
+  // Pending payments
+  const pendingExpenses = (allPendingPayments ?? []).filter((p) => p.type !== "income").reduce((sum, p) => sum + Number(p.amount_cents), 0);
+  const pendingIncome = (allPendingPayments ?? []).filter((p) => p.type === "income").reduce((sum, p) => sum + Number(p.amount_cents), 0);
   const projected = saldoAtual - pendingExpenses + pendingIncome;
 
-  // Upcoming payments (next 30 days)
-  const d30 = new Date(now.getTime() + 30 * 86400000);
-  const in30 = `${d30.getFullYear()}-${pad(d30.getMonth() + 1)}-${pad(d30.getDate())}`;
-  const { data: upcoming } = await supabase
-    .from("scheduled_payments")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("status", "pending")
-    .gte("due_date", today)
-    .lte("due_date", in30)
-    .order("due_date", { ascending: true })
-    .limit(5);
-
-  // Urgent payments (next 3 days) — split by type
+  // Urgent (next 3 days)
   const d3 = new Date(now.getTime() + 3 * 86400000);
   const in3 = `${d3.getFullYear()}-${pad(d3.getMonth() + 1)}-${pad(d3.getDate())}`;
   const urgentAll = (upcoming ?? []).filter((p) => p.due_date <= in3);
   const urgentBills = urgentAll.filter((p) => p.type !== "income");
   const urgentReceivables = urgentAll.filter((p) => p.type === "income");
 
-  // Recent transactions
-  const { data: recent } = await supabase
-    .from("transactions")
-    .select("*, categories(name, color, icon)")
-    .eq("user_id", user.id)
-    .order("date", { ascending: false })
-    .limit(5);
-
-  // ====== CREDIT CARDS ======
-  const { data: creditCards } = await db
-    .from("credit_cards")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("name");
-
-  // For each card, compute current billing cycle usage
+  // ====== CREDIT CARDS (compute from already-loaded data) ======
   type CardWithUsage = {
-    id: string;
-    name: string;
-    last_four: string | null;
-    color: string;
-    credit_limit_cents: number;
-    closing_day: number;
-    payment_day: number;
-    used_cents: number;
+    id: string; name: string; last_four: string | null; color: string;
+    credit_limit_cents: number; closing_day: number; payment_day: number; used_cents: number;
   };
 
-  const cardsWithUsage: CardWithUsage[] = [];
-  for (const card of (creditCards ?? [])) {
-    // Billing cycle: closing_day of previous month → closing_day of current month
+  const cardsWithUsage: CardWithUsage[] = (creditCards ?? []).map((card: any) => {
     const closingDay = card.closing_day || 1;
     let cycleStart: string;
     let cycleEnd: string;
 
     if (now.getDate() <= closingDay) {
-      // We're before closing: cycle is from prev month's closing_day+1 to this month's closing_day
-      const prevMonth = mo === 0 ? 11 : mo - 1;
-      const prevYear = mo === 0 ? yr - 1 : yr;
-      cycleStart = `${prevYear}-${pad(prevMonth + 1)}-${pad(Math.min(closingDay + 1, 28))}`;
+      const pm = mo === 0 ? 11 : mo - 1;
+      const py = mo === 0 ? yr - 1 : yr;
+      cycleStart = `${py}-${pad(pm + 1)}-${pad(Math.min(closingDay + 1, 28))}`;
       cycleEnd = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay, lastDay))}`;
     } else {
-      // We're after closing: cycle is from this month's closing_day+1 to next month's closing_day
-      const nextMonth = mo === 11 ? 0 : mo + 1;
-      const nextYear = mo === 11 ? yr + 1 : yr;
-      const nextLastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
+      const nm = mo === 11 ? 0 : mo + 1;
+      const ny = mo === 11 ? yr + 1 : yr;
+      const nld = new Date(ny, nm + 1, 0).getDate();
       cycleStart = `${yr}-${pad(mo + 1)}-${pad(Math.min(closingDay + 1, lastDay))}`;
-      cycleEnd = `${nextYear}-${pad(nextMonth + 1)}-${pad(Math.min(closingDay, nextLastDay))}`;
+      cycleEnd = `${ny}-${pad(nm + 1)}-${pad(Math.min(closingDay, nld))}`;
     }
 
-    // Fetch transactions for this card in current billing cycle
-    const { data: cardTx } = await db
-      .from("transactions")
-      .select("amount_cents")
-      .eq("user_id", user.id)
-      .eq("card_id", card.id)
-      .eq("type", "expense")
-      .gte("date", cycleStart)
-      .lte("date", cycleEnd);
+    // Filter from already-loaded transactions
+    const usedTx = txs
+      .filter((t) => t.card_id === card.id && t.type === "expense" && t.date >= cycleStart && t.date <= cycleEnd)
+      .reduce((sum, t) => sum + Number(t.amount_cents), 0);
 
-    // Also include scheduled payments for this card in the billing cycle
-    const { data: cardSch } = await db
-      .from("scheduled_payments")
-      .select("amount_cents")
-      .eq("user_id", user.id)
-      .eq("card_id", card.id)
-      .in("status", ["pending", "overdue"])
-      .gte("due_date", cycleStart)
-      .lte("due_date", cycleEnd);
+    // Filter from already-loaded scheduled payments
+    const usedSch = (allPendingPayments ?? [])
+      .filter((p: any) => p.card_id === card.id && p.due_date >= cycleStart && p.due_date <= cycleEnd)
+      .reduce((sum: number, p: any) => sum + Number(p.amount_cents), 0);
 
-    const usedTx = (cardTx ?? []).reduce((sum: number, t: { amount_cents: number }) => sum + Number(t.amount_cents), 0);
-    const usedSch = (cardSch ?? []).reduce((sum: number, t: { amount_cents: number }) => sum + Number(t.amount_cents), 0);
-
-    cardsWithUsage.push({
-      id: card.id,
-      name: card.name,
-      last_four: card.last_four,
-      color: card.color || "#7C3AED",
-      credit_limit_cents: Number(card.credit_limit_cents),
-      closing_day: card.closing_day,
-      payment_day: card.payment_day,
+    return {
+      id: card.id, name: card.name, last_four: card.last_four,
+      color: card.color || "#7C3AED", credit_limit_cents: Number(card.credit_limit_cents),
+      closing_day: card.closing_day, payment_day: card.payment_day,
       used_cents: usedTx + usedSch,
-    });
-  }
+    };
+  });
 
   const totalCardUsed = cardsWithUsage.reduce((sum, c) => sum + c.used_cents, 0);
   const totalCardLimit = cardsWithUsage.reduce((sum, c) => sum + c.credit_limit_cents, 0);
 
   // ====== INSTALLMENTS ======
-  const { data: activeInstallments } = await db
-    .from("installments")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("created_at", { ascending: false });
-
   const installmentCount = (activeInstallments ?? []).length;
   const installmentMonthly = (activeInstallments ?? []).reduce(
     (sum: number, i: { installment_amount_cents: number }) => sum + Number(i.installment_amount_cents), 0
   );
 
   // ====== LOANS ======
-  const { data: activeLoans } = await db
-    .from("loans")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("name");
-
   const loanCount = (activeLoans ?? []).length;
   const loanMonthly = (activeLoans ?? []).reduce(
     (sum: number, l: { monthly_payment_cents: number }) => sum + Number(l.monthly_payment_cents), 0
