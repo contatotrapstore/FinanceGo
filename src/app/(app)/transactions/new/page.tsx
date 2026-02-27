@@ -97,6 +97,15 @@ function NewTransactionContent() {
       if (!user) return;
       setUserId(user.id);
 
+      // Copy session to untyped client so RLS works
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await db.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        });
+      }
+
       const { data: cats } = await supabase
         .from("categories")
         .select("id, name, type, color")
