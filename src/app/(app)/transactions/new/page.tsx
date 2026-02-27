@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { createClient as createUntyped } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,13 +41,34 @@ function todayStr() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+function tomorrowStr() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function NewTransactionPage() {
-  const [type, setType] = useState<"income" | "expense">("expense");
+  return (
+    <Suspense fallback={null}>
+      <NewTransactionContent />
+    </Suspense>
+  );
+}
+
+function NewTransactionContent() {
+  const searchParams = useSearchParams();
+  const [type, setType] = useState<"income" | "expense">(
+    (searchParams.get("type") as "income" | "expense") || "expense"
+  );
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
-  const [date, setDate] = useState(todayStr);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    (searchParams.get("method") as PaymentMethod) || "pix"
+  );
+  const [date, setDate] = useState(
+    searchParams.get("scheduled") === "true" ? tomorrowStr : todayStr
+  );
   const [categories, setCategories] = useState<Category[]>([]);
   const [walletId, setWalletId] = useState("");
   const [userId, setUserId] = useState("");
